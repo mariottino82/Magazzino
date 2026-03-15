@@ -22,12 +22,16 @@ async function startServer() {
   // --- Auth Middleware ---
   const authenticate = (req: any, res: any, next: any) => {
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    if (!token) {
+      console.log(`[AUTH] Accesso negato a ${req.path} - Cookie mancante`);
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as any;
       req.user = decoded;
       next();
     } catch (err) {
+      console.log(`[AUTH] Token non valido per ${req.path}`);
       res.status(401).json({ error: 'Invalid token' });
     }
   };
@@ -65,13 +69,14 @@ async function startServer() {
 
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
     
-    // Check if we are in the AI Studio preview environment or on a secure connection
-    const isSecure = process.env.NODE_ENV === 'production' && req.headers['x-forwarded-proto'] === 'https';
+    // Check if we are on HTTPS (AI Studio or Reverse Proxy with SSL)
+    const isSecure = req.headers['x-forwarded-proto'] === 'https';
     
     res.cookie('token', token, { 
       httpOnly: true, 
       secure: isSecure, 
-      sameSite: isSecure ? 'none' : 'lax' 
+      sameSite: isSecure ? 'none' : 'lax',
+      path: '/' // Ensure cookie is available for all paths
     });
     res.json({ id: user.id, email: user.email, role: user.role });
   });
