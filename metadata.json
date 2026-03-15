@@ -1,0 +1,5 @@
+{
+  "name": "Spighe Molisane - Magazzino Alimentare",
+  "description": "Gestione avanzata magazzino alimentare con tracciamento lotti, scadenze e conformità HACCP.",
+  "requestFramePermissions": ["camera"]
+}
