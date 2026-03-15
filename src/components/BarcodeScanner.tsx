@@ -12,46 +12,85 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, onClose 
   const [isScanning, setIsScanning] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
+  const isInitializing = useRef(false);
+
   const startScanner = async () => {
+    if (isInitializing.current) return;
+    isInitializing.current = true;
+
     try {
       setError(null);
-      const devices = await Html5Qrcode.getCameras();
       
-      if (devices && devices.length > 0) {
-        // Prefer back camera
-        const backCamera = devices.find(device => 
-          device.label.toLowerCase().includes('back') || 
-          device.label.toLowerCase().includes('retro') ||
-          device.label.toLowerCase().includes('posteriore')
-        );
-        const cameraId = backCamera ? backCamera.id : devices[0].id;
+      if (!window.isSecureContext) {
+        setError("La fotocamera richiede HTTPS. Su questo server (HTTP) il browser blocca l'accesso.");
+        isInitializing.current = false;
+        return;
+      }
 
-        if (!html5QrCodeRef.current) {
-          html5QrCodeRef.current = new Html5Qrcode("reader");
+      // Ensure previous instance is stopped
+      if (html5QrCodeRef.current) {
+        if (html5QrCodeRef.current.isScanning) {
+          try {
+            await html5QrCodeRef.current.stop();
+          } catch (e) {
+            console.warn("Stop failed during restart:", e);
+          }
         }
+      } else {
+        html5QrCodeRef.current = new Html5Qrcode("reader");
+      }
 
+      // Small delay to let the UI settle
+      await new Promise(resolve => setTimeout(resolve, 350));
+
+      const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 150 },
+        aspectRatio: 1.0
+      };
+
+      try {
         await html5QrCodeRef.current.start(
-          cameraId,
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 150 },
-            aspectRatio: 1.0
-          },
+          { facingMode: "environment" },
+          config,
           (decodedText) => {
             stopScanner();
             onScan(decodedText);
           },
-          (errorMessage) => {
-            // Silently handle scan errors (they happen every frame if no code found)
-          }
+          () => {}
         );
-        setIsScanning(true);
-      } else {
-        setError("Nessuna fotocamera trovata.");
+      } catch (err) {
+        console.warn("FacingMode failed, trying fallback", err);
+        const devices = await Html5Qrcode.getCameras();
+        if (devices && devices.length > 0) {
+          await html5QrCodeRef.current.start(
+            devices[devices.length - 1].id,
+            config,
+            (decodedText) => {
+              stopScanner();
+              onScan(decodedText);
+            },
+            () => {}
+          );
+        } else {
+          throw err;
+        }
       }
+      
+      setIsScanning(true);
     } catch (err: any) {
-      console.error("Camera error:", err);
-      setError("Errore nell'accesso alla fotocamera. Assicurati di aver concesso i permessi.");
+      console.error("Scanner error:", err);
+      let errorMessage = err.message || "Errore sconosciuto";
+      
+      if (errorMessage.includes("NotAllowedError") || errorMessage.includes("Permission denied")) {
+        setError("Accesso negato. Controlla i permessi del browser.");
+      } else if (errorMessage.includes("ongoing")) {
+        setError("Lo scanner è già in funzione. Chiudi e riapri.");
+      } else {
+        setError(`Errore tecnico: ${errorMessage}. Ricarica la pagina.`);
+      }
+    } finally {
+      isInitializing.current = false;
     }
   };
 

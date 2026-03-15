@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, Package, ClipboardCheck, AlertTriangle, Plus, Search, 
   Calendar, Thermometer, History, Trash2, CheckCircle2, XCircle, LogOut, Users, Settings,
-  FileSpreadsheet, FileText, Camera, ScanLine
+  FileSpreadsheet, FileText, Camera, ScanLine, Menu, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, Batch, HACCPLog, Tab, User } from './types';
@@ -33,6 +33,7 @@ export default function App() {
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
 
@@ -202,6 +203,54 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden"
+            />
+            <motion.aside 
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed left-0 top-0 h-full w-72 bg-white z-50 md:hidden shadow-2xl"
+            >
+              <div className="p-6 flex flex-col h-full">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
+                      <Package className="text-white w-5 h-5" />
+                    </div>
+                    <h1 className="text-xl font-bold tracking-tight">{APP_NAME}</h1>
+                  </div>
+                  <button onClick={() => setIsMobileMenuOpen(false)} className="text-gray-400 hover:text-gray-900">
+                    <X size={24} />
+                  </button>
+                </div>
+                <nav className="space-y-2 flex-1">
+                  <NavItem active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} icon={<LayoutDashboard size={20} />} label="Dashboard" />
+                  <NavItem active={activeTab === 'inventory'} onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }} icon={<Package size={20} />} label="Inventario" />
+                  <NavItem active={activeTab === 'batches'} onClick={() => { setActiveTab('batches'); setIsMobileMenuOpen(false); }} icon={<History size={20} />} label="Lotti & Scadenze" />
+                  <NavItem active={activeTab === 'haccp'} onClick={() => { setActiveTab('haccp'); setIsMobileMenuOpen(false); }} icon={<ClipboardCheck size={20} />} label="HACCP" />
+                  {user.role === 'admin' && <NavItem active={activeTab === 'admin'} onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }} icon={<Users size={20} />} label="Utenti" />}
+                </nav>
+                <div className="pt-6 border-t border-gray-100">
+                  <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                    <LogOut size={20} /> <span className="text-sm font-medium">Esci</span>
+                  </button>
+                </div>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
       <aside className="fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 z-10 hidden md:block">
         <div className="p-6">
           <div className="flex items-center gap-2 mb-8">
@@ -225,9 +274,17 @@ export default function App() {
 
       <main className="md:ml-64 p-4 md:p-8">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h2 className="text-2xl font-bold capitalize">{activeTab}</h2>
-            <p className="text-gray-500 text-sm">Benvenuto, {user.email}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold capitalize">{activeTab}</h2>
+              <p className="text-gray-500 text-sm">Benvenuto, {user.email}</p>
+            </div>
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-2 bg-white border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50"
+            >
+              <Menu size={24} />
+            </button>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative">
