@@ -133,12 +133,12 @@ async function startServer() {
   });
 
   app.post('/api/products', authenticate, (req, res) => {
-    const { name, category, unit, minStock, barcode } = req.body;
+    const { name, category, unit, min_stock, barcode } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     try {
       db.prepare('INSERT INTO products (id, name, category, unit, min_stock, barcode) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, name, category, unit, minStock, barcode || null);
-      res.json({ id, name, category, unit, minStock, barcode });
+        .run(id, name, category, unit, min_stock || 5, barcode || null);
+      res.json({ id, name, category, unit, min_stock: min_stock || 5, barcode });
     } catch (err) {
       res.status(400).json({ error: 'Barcode already exists or invalid data' });
     }
@@ -204,6 +204,15 @@ async function startServer() {
     db.prepare('INSERT INTO haccp_logs (id, date, type, description, operator, status) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, date, type, description, operator, status);
     res.json({ id, date, type, description, operator, status });
+  });
+
+  // Global Error Handler for API
+  app.use('/api', (err: any, req: any, res: any, next: any) => {
+    console.error('[SERVER ERROR]', err);
+    res.status(err.status || 500).json({ 
+      error: err.message || 'Internal Server Error',
+      details: process.env.NODE_ENV !== 'production' ? err.stack : undefined
+    });
   });
 
   // --- Vite Integration ---

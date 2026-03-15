@@ -492,7 +492,7 @@ export default function App() {
 
       {isAddProductOpen && (
         <Modal title="Nuovo Prodotto" onClose={() => setIsAddProductOpen(false)}>
-          <form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); await api.inventory.addProduct({ name: fd.get('name'), category: fd.get('category'), unit: fd.get('unit'), minStock: Number(fd.get('minStock')), barcode: fd.get('barcode') }); fetchData(); setIsAddProductOpen(false); }} className="space-y-4">
+          <form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); await api.inventory.addProduct({ name: fd.get('name'), category: fd.get('category'), unit: fd.get('unit'), min_stock: Number(fd.get('min_stock')), barcode: fd.get('barcode') }); fetchData(); setIsAddProductOpen(false); }} className="space-y-4">
             <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Nome</label><input name="name" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
             <div>
               <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Codice a Barre (Barcode)</label>
@@ -507,7 +507,7 @@ export default function App() {
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Categoria</label><select name="category" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option>Fresco</option><option>Secco</option><option>Surgelato</option></select></div>
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Unità</label><select name="unit" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option>kg</option><option>litri</option><option>pezzi</option></select></div>
             </div>
-            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scorta Minima</label><input name="minStock" type="number" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scorta Minima</label><input name="min_stock" type="number" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
             <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20">Salva Prodotto</button>
           </form>
         </Modal>

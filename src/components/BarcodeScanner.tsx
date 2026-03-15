@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { XCircle, Camera, RefreshCw } from 'lucide-react';
+import { XCircle, Camera, RefreshCw, CheckCircle2 } from 'lucide-react';
 
 interface BarcodeScannerProps {
   onScan: (decodedText: string) => void;
@@ -10,12 +10,13 @@ interface BarcodeScannerProps {
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [scanSuccess, setScanSuccess] = useState<string | null>(null);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   const isInitializing = useRef(false);
 
   const startScanner = async () => {
-    if (isInitializing.current) return;
+    if (isInitializing.current || scanSuccess) return;
     isInitializing.current = true;
 
     try {
@@ -54,8 +55,13 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, onClose 
           { facingMode: "environment" },
           config,
           (decodedText) => {
-            stopScanner();
-            onScan(decodedText);
+            setScanSuccess(decodedText);
+            setIsScanning(false);
+            // Give a moment to show the success UI and stop the camera
+            setTimeout(async () => {
+              await stopScanner();
+              onScan(decodedText);
+            }, 800);
           },
           () => {}
         );
@@ -67,8 +73,12 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, onClose 
             devices[devices.length - 1].id,
             config,
             (decodedText) => {
-              stopScanner();
-              onScan(decodedText);
+              setScanSuccess(decodedText);
+              setIsScanning(false);
+              setTimeout(async () => {
+                await stopScanner();
+                onScan(decodedText);
+              }, 800);
             },
             () => {}
           );
@@ -142,11 +152,25 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, onClose 
             </div>
           )}
 
-          {!isScanning && !error && (
+          {!isScanning && !error && !scanSuccess && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                 <p className="text-white text-sm font-medium">Inizializzazione fotocamera...</p>
+              </div>
+            </div>
+          )}
+
+          {scanSuccess && (
+            <div className="absolute inset-0 flex items-center justify-center bg-emerald-600/20 backdrop-blur-[2px]">
+              <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-2xl shadow-2xl">
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
+                  <CheckCircle2 size={32} />
+                </div>
+                <div className="text-center">
+                  <p className="text-gray-900 font-bold">Codice rilevato!</p>
+                  <p className="text-xs font-mono text-emerald-600 mt-1">{scanSuccess}</p>
+                </div>
               </div>
             </div>
           )}

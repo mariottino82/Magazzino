@@ -3,7 +3,7 @@ export interface Product {
   name: string;
   category: string;
   unit: string; // kg, litri, pezzi, etc.
-  minStock: number;
+  min_stock: number;
   barcode?: string;
 }
 

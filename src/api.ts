@@ -8,11 +8,19 @@ const fetchApi = async (url: string, options: RequestInit = {}) => {
       ...options.headers,
     },
   });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Something went wrong');
+
+  const contentType = res.headers.get('content-type');
+  let data;
+  if (contentType && contentType.includes('application/json')) {
+    data = await res.json();
+  } else {
+    data = { error: await res.text() };
   }
-  return res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || `Server error (${res.status}): ${res.statusText}`);
+  }
+  return data;
 };
 
 export const api = {
@@ -25,17 +33,17 @@ export const api = {
   admin: {
     getUsers: () => fetchApi('/api/admin/users'),
     addUser: (data: any) => fetchApi('/api/admin/users', { method: 'POST', body: JSON.stringify(data) }),
-    updateUser: (id: string, data: any) => fetchApi(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    deleteUser: (id: string) => fetchApi(`/api/admin/users/${id}`, { method: 'DELETE' }),
+    updateUser: (id: string, data: any) => fetchApi(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteUser: (id: string) => fetchApi(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   inventory: {
     getProducts: () => fetchApi('/api/products'),
     addProduct: (data: any) => fetchApi('/api/products', { method: 'POST', body: JSON.stringify(data) }),
-    getProductByBarcode: (barcode: string) => fetchApi(`/api/products/barcode/${barcode}`),
+    getProductByBarcode: (barcode: string) => fetchApi(`/api/products/barcode/${encodeURIComponent(barcode)}`),
     getBatches: () => fetchApi('/api/batches'),
     addBatch: (data: any) => fetchApi('/api/batches', { method: 'POST', body: JSON.stringify(data) }),
     addBulkBatches: (data: any) => fetchApi('/api/batches/bulk', { method: 'POST', body: JSON.stringify(data) }),
-    deleteBatch: (id: string) => fetchApi(`/api/batches/${id}`, { method: 'DELETE' }),
+    deleteBatch: (id: string) => fetchApi(`/api/batches/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     getLogs: () => fetchApi('/api/logs'),
     addLog: (data: any) => fetchApi('/api/logs', { method: 'POST', body: JSON.stringify(data) }),
   },
