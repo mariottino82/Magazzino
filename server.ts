@@ -64,7 +64,15 @@ async function startServer() {
     }
 
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
+    
+    // Check if we are in the AI Studio preview environment or on a secure connection
+    const isSecure = process.env.NODE_ENV === 'production' && req.headers['x-forwarded-proto'] === 'https';
+    
+    res.cookie('token', token, { 
+      httpOnly: true, 
+      secure: isSecure, 
+      sameSite: isSecure ? 'none' : 'lax' 
+    });
     res.json({ id: user.id, email: user.email, role: user.role });
   });
 
@@ -92,7 +100,12 @@ async function startServer() {
         .run(id, email, hashedPassword, role || 'user', status || 'approved');
       res.json({ id, email, role, status });
     } catch (err: any) {
-      res.status(400).json({ error: 'Email already exists' });
+      console.error('Error adding user:', err);
+      if (err.message && err.message.includes('UNIQUE constraint failed')) {
+        res.status(400).json({ error: 'Email already exists' });
+      } else {
+        res.status(500).json({ error: 'Internal server error: ' + err.message });
+      }
     }
   });
 
