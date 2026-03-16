@@ -19,11 +19,29 @@ async function startServer() {
   app.use(express.json());
   app.use(cookieParser());
 
+  // --- Debug Middleware ---
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      const hasToken = !!req.cookies.token;
+      console.log(`[API] ${req.method} ${req.path} - Token presente: ${hasToken}`);
+    }
+    next();
+  });
+
   // --- Auth Middleware ---
   const authenticate = (req: any, res: any, next: any) => {
-    const token = req.cookies.token;
+    // Check both cookie and Authorization header
+    let token = req.cookies.token;
+    
+    if (!token && req.headers.authorization) {
+      const parts = req.headers.authorization.split(' ');
+      if (parts.length === 2 && parts[0] === 'Bearer') {
+        token = parts[1];
+      }
+    }
+
     if (!token) {
-      console.log(`[AUTH] Accesso negato a ${req.path} - Cookie mancante`);
+      console.log(`[AUTH] Accesso negato a ${req.path} - Token mancante (no cookie, no header)`);
       return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
@@ -69,20 +87,26 @@ async function startServer() {
 
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
     
-    // Check if we are on HTTPS (AI Studio or Reverse Proxy with SSL)
-    const isSecure = req.headers['x-forwarded-proto'] === 'https';
-    
+    // AI Studio preview and production run on HTTPS and require SameSite=None for iframes
+    // We force these settings because the app is always accessed via HTTPS in the preview/shared environment
     res.cookie('token', token, { 
       httpOnly: true, 
-      secure: isSecure, 
-      sameSite: isSecure ? 'none' : 'lax',
-      path: '/' // Ensure cookie is available for all paths
+      secure: true, 
+      sameSite: 'none',
+      path: '/',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
-    res.json({ id: user.id, email: user.email, role: user.role });
+    console.log(`[AUTH] Login successful for ${email}, token generated`);
+    res.json({ id: user.id, email: user.email, role: user.role, token });
   });
 
   app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie('token');
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      path: '/'
+    });
     res.json({ message: 'Logged out' });
   });
 
@@ -132,6 +156,19 @@ async function startServer() {
     res.json(products);
   });
 
+  app.patch('/api/products/:id', authenticate, (req, res) => {
+    const { name, category, unit, min_stock, barcode } = req.body;
+    db.prepare('UPDATE products SET name = COALESCE(?, name), category = COALESCE(?, category), unit = COALESCE(?, unit), min_stock = COALESCE(?, min_stock), barcode = COALESCE(?, barcode) WHERE id = ?')
+      .run(name, category, unit, min_stock, barcode, req.params.id);
+    res.json({ message: 'Product updated' });
+  });
+
+  app.delete('/api/products/:id', authenticate, (req, res) => {
+    db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
+    db.prepare('DELETE FROM batches WHERE product_id = ?').run(req.params.id);
+    res.json({ message: 'Product and associated batches deleted' });
+  });
+
   app.post('/api/products', authenticate, (req, res) => {
     const { name, category, unit, min_stock, barcode } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
@@ -176,6 +213,13 @@ async function startServer() {
   app.get('/api/batches', authenticate, (req, res) => {
     const batches = db.prepare('SELECT * FROM batches').all();
     res.json(batches);
+  });
+
+  app.patch('/api/batches/:id', authenticate, (req, res) => {
+    const { lotNumber, quantity, expiryDate, supplier, temperatureCheck } = req.body;
+    db.prepare('UPDATE batches SET lot_number = COALESCE(?, lot_number), quantity = COALESCE(?, quantity), expiry_date = COALESCE(?, expiry_date), supplier = COALESCE(?, supplier), temperature_check = COALESCE(?, temperature_check) WHERE id = ?')
+      .run(lotNumber, quantity, expiryDate, supplier, temperatureCheck, req.params.id);
+    res.json({ message: 'Batch updated' });
   });
 
   app.post('/api/batches', authenticate, (req, res) => {

@@ -1,10 +1,14 @@
 import { Product, Batch, HACCPLog, User } from './types';
 
 const fetchApi = async (url: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem('auth_token');
+  
   const res = await fetch(url, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -39,9 +43,12 @@ export const api = {
   inventory: {
     getProducts: () => fetchApi('/api/products'),
     addProduct: (data: any) => fetchApi('/api/products', { method: 'POST', body: JSON.stringify(data) }),
+    updateProduct: (id: string, data: any) => fetchApi(`/api/products/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteProduct: (id: string) => fetchApi(`/api/products/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     getProductByBarcode: (barcode: string) => fetchApi(`/api/products/barcode/${encodeURIComponent(barcode)}`),
     getBatches: () => fetchApi('/api/batches'),
     addBatch: (data: any) => fetchApi('/api/batches', { method: 'POST', body: JSON.stringify(data) }),
+    updateBatch: (id: string, data: any) => fetchApi(`/api/batches/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
     addBulkBatches: (data: any) => fetchApi('/api/batches/bulk', { method: 'POST', body: JSON.stringify(data) }),
     deleteBatch: (id: string) => fetchApi(`/api/batches/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     getLogs: () => fetchApi('/api/logs'),

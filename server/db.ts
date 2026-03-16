@@ -20,47 +20,113 @@ if (process.env.NODE_ENV === 'production') {
 
 const db = new Database(dbPath);
 
-// Initialize tables
+// --- Migration System ---
 db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT DEFAULT 'user',
-    status TEXT DEFAULT 'pending', -- pending, approved, suspended
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS products (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    unit TEXT NOT NULL,
-    min_stock REAL NOT NULL,
-    barcode TEXT UNIQUE
-  );
-
-  CREATE TABLE IF NOT EXISTS batches (
-    id TEXT PRIMARY KEY,
-    product_id TEXT NOT NULL,
-    lot_number TEXT NOT NULL,
-    quantity REAL NOT NULL,
-    expiry_date TEXT NOT NULL,
-    received_date TEXT NOT NULL,
-    supplier TEXT NOT NULL,
-    temperature_check REAL,
-    FOREIGN KEY (product_id) REFERENCES products(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS haccp_logs (
-    id TEXT PRIMARY KEY,
-    date TEXT NOT NULL,
-    type TEXT NOT NULL,
-    description TEXT NOT NULL,
-    operator TEXT NOT NULL,
-    status TEXT NOT NULL
-  );
+  CREATE TABLE IF NOT EXISTS _migrations (
+    id INTEGER PRIMARY KEY,
+    description TEXT,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
 `);
+
+const migrations = [
+  {
+    id: 1,
+    description: 'Initial schema',
+    run: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL,
+          role TEXT DEFAULT 'user',
+          status TEXT DEFAULT 'pending',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS products (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          unit TEXT NOT NULL,
+          min_stock REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS batches (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL,
+          lot_number TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          expiry_date TEXT NOT NULL,
+          received_date TEXT NOT NULL,
+          FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+        CREATE TABLE IF NOT EXISTS haccp_logs (
+          id TEXT PRIMARY KEY,
+          date TEXT NOT NULL,
+          type TEXT NOT NULL,
+          description TEXT NOT NULL,
+          operator TEXT NOT NULL,
+          status TEXT NOT NULL
+        );
+      `);
+    }
+  },
+  {
+    id: 2,
+    description: 'Add barcode to products',
+    run: () => {
+      // Use try-catch because ALTER TABLE doesn't support IF NOT EXISTS for columns
+      try {
+        db.exec('ALTER TABLE products ADD COLUMN barcode TEXT UNIQUE');
+      } catch (err) {
+        console.log('[DB] Column barcode might already exist, skipping...');
+      }
+    }
+  },
+  {
+    id: 3,
+    description: 'Add supplier and temperature_check to batches',
+    run: () => {
+      try {
+        db.exec('ALTER TABLE batches ADD COLUMN supplier TEXT');
+      } catch (err) {
+        console.log('[DB] Column supplier might already exist, skipping...');
+      }
+      try {
+        db.exec('ALTER TABLE batches ADD COLUMN temperature_check REAL');
+      } catch (err) {
+        console.log('[DB] Column temperature_check might already exist, skipping...');
+      }
+    }
+  }
+];
+
+// Apply migrations in a transaction
+const applyMigrations = () => {
+  const applied = db.prepare('SELECT id FROM _migrations').all().map((m: any) => m.id);
+  
+  for (const migration of migrations) {
+    if (!applied.includes(migration.id)) {
+      console.log(`[DB] Applying migration ${migration.id}: ${migration.description}`);
+      try {
+        db.transaction(() => {
+          migration.run();
+          db.prepare('INSERT INTO _migrations (id, description) VALUES (?, ?)').run(migration.id, migration.description);
+        })();
+      } catch (err) {
+        console.error(`[DB] Failed to apply migration ${migration.id}:`, err);
+        // If it's a "duplicate column" error, we might want to mark it as applied anyway 
+        // if we are fixing a legacy DB state.
+        if (err instanceof Error && err.message.includes('duplicate column name')) {
+          db.prepare('INSERT INTO _migrations (id, description) VALUES (?, ?)').run(migration.id, migration.description);
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+};
+
+applyMigrations();
 
 // Create initial admin if not exists
 const adminEmail = 'admin@gastrostock.it';

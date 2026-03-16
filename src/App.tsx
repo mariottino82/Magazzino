@@ -34,6 +34,8 @@ export default function App() {
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
 
@@ -69,8 +71,13 @@ export default function App() {
       setProducts(p);
       setBatches(b);
       setLogs(l);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch error:', err);
+      // Only logout if it's explicitly an auth error and we're not already loading
+      if (err.message.includes('Unauthorized') || err.message.includes('401')) {
+        console.warn('Sessione scaduta o non valida. Reindirizzamento al login.');
+        setUser(null);
+      }
     }
   };
 
@@ -78,8 +85,11 @@ export default function App() {
     try {
       const u = await api.admin.getUsers();
       setUsers(u);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch users error:', err);
+      if (err.message.includes('Unauthorized') || err.message.includes('401')) {
+        setUser(null);
+      }
     }
   };
 
@@ -93,6 +103,9 @@ export default function App() {
     try {
       if (authMode === 'login') {
         const userData = await api.auth.login({ email, password });
+        if (userData.token) {
+          localStorage.setItem('auth_token', userData.token);
+        }
         setUser(userData);
       } else {
         const res = await api.auth.register({ email, password });
@@ -106,6 +119,7 @@ export default function App() {
 
   const handleLogout = async () => {
     await api.auth.logout();
+    localStorage.removeItem('auth_token');
     setUser(null);
     setActiveTab('dashboard');
   };
@@ -373,12 +387,38 @@ export default function App() {
                   <thead><tr className="bg-gray-50 border-b border-gray-200"><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Prodotto</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Barcode</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Categoria</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Giacenza</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Stato</th></tr></thead>
                   <tbody className="divide-y divide-gray-100">
                     {inventoryStats.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.barcode?.includes(searchTerm)).map(s => (
-                      <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-medium">{s.name}</td>
+                      <tr 
+                        key={s.id} 
+                        className="hover:bg-emerald-50/50 cursor-pointer transition-colors group"
+                        onClick={() => setSelectedProduct(s)}
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-gray-900">{s.name}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">{s.id}</span>
+                          </div>
+                        </td>
                         <td className="px-6 py-4 font-mono text-xs text-gray-400">{s.barcode || '-'}</td>
-                        <td className="px-6 py-4"><span className="px-2 py-1 bg-gray-100 rounded-lg text-xs">{s.category}</span></td>
-                        <td className="px-6 py-4 font-mono font-bold">{s.totalQty} {s.unit}</td>
-                        <td className="px-6 py-4">{s.isLowStock ? <span className="text-amber-600 text-xs font-bold">SOTTO SCORTA</span> : <span className="text-emerald-600 text-xs font-bold">OK</span>}</td>
+                        <td className="px-6 py-4"><span className="px-2 py-1 bg-gray-100 rounded-lg text-xs font-medium text-gray-600">{s.category}</span></td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="font-mono font-bold text-gray-900">{s.totalQty} {s.unit}</span>
+                            <span className="text-[10px] text-gray-400 uppercase">Giacenza Totale</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {s.isLowStock ? (
+                            <div className="flex items-center gap-1 text-amber-600">
+                              <AlertTriangle size={14} />
+                              <span className="text-[10px] font-bold uppercase">Sotto Scorta</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-emerald-600">
+                              <CheckCircle2 size={14} />
+                              <span className="text-[10px] font-bold uppercase">Disponibile</span>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -404,21 +444,52 @@ export default function App() {
                     {batches.filter(b => {
                       const p = products.find(prod => prod.id === b.product_id);
                       return p?.name.toLowerCase().includes(searchTerm.toLowerCase()) || b.lot_number.includes(searchTerm);
-                    }).map(b => (
-                      <tr key={b.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-medium">{products.find(p => p.id === b.product_id)?.name}</td>
-                        <td className="px-6 py-4 font-mono">{b.lot_number}</td>
-                        <td className="px-6 py-4 font-mono font-bold">{b.quantity}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded-lg text-xs font-bold ${new Date(b.expiry_date) < new Date() ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-600'}`}>
-                            {b.expiry_date}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button onClick={() => api.inventory.deleteBatch(b.id).then(fetchData)} className="text-red-500 hover:text-red-700"><Trash2 size={18} /></button>
-                        </td>
-                      </tr>
-                    ))}
+                    }).map(b => {
+                      const p = products.find(prod => prod.id === b.product_id);
+                      const isExpired = new Date(b.expiry_date) < new Date();
+                      const today = new Date();
+                      const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+                      const isExpiringSoon = new Date(b.expiry_date) <= nextWeek && !isExpired;
+
+                      return (
+                        <tr 
+                          key={b.id} 
+                          className="hover:bg-blue-50/50 cursor-pointer transition-colors"
+                          onClick={() => setSelectedBatch(b)}
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-gray-900">{p?.name}</span>
+                              <span className="text-[10px] text-gray-400 uppercase">{b.supplier}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-gray-100 rounded flex items-center justify-center text-[10px] font-bold text-gray-500">LOT</div>
+                              <span className="font-mono font-medium">{b.lot_number}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 font-mono font-bold text-blue-600">{b.quantity} {p?.unit}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className={`text-sm font-bold ${isExpired ? 'text-red-600' : isExpiringSoon ? 'text-orange-500' : 'text-gray-700'}`}>
+                                {b.expiry_date}
+                              </span>
+                              <span className="text-[10px] text-gray-400 uppercase">Scadenza</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            {isExpired ? (
+                              <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] font-bold uppercase">Scaduto</span>
+                            ) : isExpiringSoon ? (
+                              <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-lg text-[10px] font-bold uppercase">In Scadenza</span>
+                            ) : (
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg text-[10px] font-bold uppercase">In Stock</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -607,6 +678,79 @@ export default function App() {
               </div>
             </div>
             <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors">Crea Utente</button>
+          </form>
+        </Modal>
+      )}
+
+      {selectedProduct && (
+        <Modal title={`Dettagli Prodotto: ${selectedProduct.name}`} onClose={() => setSelectedProduct(null)}>
+          <form onSubmit={async (e) => { 
+            e.preventDefault(); 
+            const fd = new FormData(e.currentTarget); 
+            await api.inventory.updateProduct(selectedProduct.id, { 
+              name: fd.get('name'), 
+              category: fd.get('category'), 
+              unit: fd.get('unit'), 
+              min_stock: Number(fd.get('min_stock')), 
+              barcode: fd.get('barcode') 
+            }); 
+            fetchData(); 
+            setSelectedProduct(null); 
+          }} className="space-y-4">
+            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Nome</label><input name="name" defaultValue={selectedProduct.name} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Codice a Barre (Barcode)</label>
+              <div className="flex gap-2">
+                <input name="barcode" defaultValue={selectedProduct.barcode || ''} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl font-mono" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Categoria</label><select name="category" defaultValue={selectedProduct.category} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option>Fresco</option><option>Secco</option><option>Surgelato</option></select></div>
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Unità</label><select name="unit" defaultValue={selectedProduct.unit} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option>kg</option><option>litri</option><option>pezzi</option></select></div>
+            </div>
+            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scorta Minima</label><input name="min_stock" type="number" defaultValue={selectedProduct.min_stock} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            <div className="flex gap-3 pt-4">
+              <button type="button" onClick={async () => { if(confirm('Eliminare definitivamente questo prodotto e tutti i suoi lotti?')) { await api.inventory.deleteProduct(selectedProduct.id); fetchData(); setSelectedProduct(null); } }} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              <button type="submit" className="flex-[2] bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20">Aggiorna</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {selectedBatch && (
+        <Modal title={`Dettagli Lotto: ${selectedBatch.lot_number}`} onClose={() => setSelectedBatch(null)}>
+          <form onSubmit={async (e) => { 
+            e.preventDefault(); 
+            const fd = new FormData(e.currentTarget); 
+            await api.inventory.updateBatch(selectedBatch.id, { 
+              lotNumber: fd.get('lotNumber'), 
+              quantity: Number(fd.get('quantity')), 
+              expiryDate: fd.get('expiryDate'), 
+              supplier: fd.get('supplier'), 
+              temperatureCheck: fd.get('temp') ? Number(fd.get('temp')) : null 
+            }); 
+            fetchData(); 
+            setSelectedBatch(null); 
+          }} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prodotto</label>
+              <div className="p-3 bg-gray-100 border border-gray-200 rounded-xl text-gray-500 font-medium">
+                {products.find(p => p.id === selectedBatch.product_id)?.name}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto</label><input name="lotNumber" defaultValue={selectedBatch.lot_number} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità</label><input name="quantity" type="number" defaultValue={selectedBatch.quantity} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scadenza</label><input name="expiryDate" type="date" defaultValue={selectedBatch.expiry_date} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Temp. (°C)</label><input name="temp" type="number" step="0.1" defaultValue={selectedBatch.temperature_check || ''} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            </div>
+            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Fornitore</label><input name="supplier" defaultValue={selectedBatch.supplier} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            <div className="flex gap-3 pt-4">
+              <button type="button" onClick={async () => { if(confirm('Eliminare questo lotto?')) { await api.inventory.deleteBatch(selectedBatch.id); fetchData(); setSelectedBatch(null); } }} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20">Aggiorna</button>
+            </div>
           </form>
         </Modal>
       )}
