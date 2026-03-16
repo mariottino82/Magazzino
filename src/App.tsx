@@ -25,9 +25,12 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [logs, setLogs] = useState<HACCPLog[]>([]);
+  const [sales, setSales] = useState<any[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isCaricoOpen, setIsCaricoOpen] = useState(false);
+  const [isScaricoOpen, setIsScaricoOpen] = useState(false);
   const [isAddBatchOpen, setIsAddBatchOpen] = useState(false);
   const [isAddLogOpen, setIsAddLogOpen] = useState(false);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -36,6 +39,8 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
+  const [selectedLog, setSelectedLog] = useState<HACCPLog | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string, type: 'product' | 'batch' | 'log' } | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
 
@@ -63,14 +68,16 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const [p, b, l] = await Promise.all([
+      const [p, b, l, s] = await Promise.all([
         api.inventory.getProducts(),
         api.inventory.getBatches(),
-        api.inventory.getLogs()
+        api.inventory.getLogs(),
+        api.inventory.getSales()
       ]);
       setProducts(p);
       setBatches(b);
       setLogs(l);
+      setSales(s);
     } catch (err: any) {
       console.error('Fetch error:', err);
       // Only logout if it's explicitly an auth error and we're not already loading
@@ -127,7 +134,7 @@ export default function App() {
   const inventoryStats = useMemo(() => {
     return products.map(p => {
       const productBatches = batches.filter(b => b.product_id === p.id);
-      const totalQty = productBatches.reduce((sum, b) => sum + b.quantity, 0);
+      const totalQty = p.quantity; // Use product.quantity as requested
       const isLowStock = totalQty < p.min_stock;
       const today = new Date();
       const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -249,8 +256,9 @@ export default function App() {
                 </div>
                 <nav className="space-y-2 flex-1">
                   <NavItem active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} icon={<LayoutDashboard size={20} />} label="Dashboard" />
-                  <NavItem active={activeTab === 'inventory'} onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }} icon={<Package size={20} />} label="Inventario" />
+                  <NavItem active={activeTab === 'inventory'} onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }} icon={<Package size={20} />} label="Magazzino" />
                   <NavItem active={activeTab === 'batches'} onClick={() => { setActiveTab('batches'); setIsMobileMenuOpen(false); }} icon={<History size={20} />} label="Lotti & Scadenze" />
+                  <NavItem active={activeTab === 'sales'} onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }} icon={<FileText size={20} />} label="Vendite" />
                   <NavItem active={activeTab === 'haccp'} onClick={() => { setActiveTab('haccp'); setIsMobileMenuOpen(false); }} icon={<ClipboardCheck size={20} />} label="HACCP" />
                   {user.role === 'admin' && <NavItem active={activeTab === 'admin'} onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }} icon={<Users size={20} />} label="Utenti" />}
                 </nav>
@@ -273,8 +281,9 @@ export default function App() {
           </div>
           <nav className="space-y-1">
             <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={20} />} label="Dashboard" />
-            <NavItem active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} icon={<Package size={20} />} label="Inventario" />
+            <NavItem active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} icon={<Package size={20} />} label="Magazzino" />
             <NavItem active={activeTab === 'batches'} onClick={() => setActiveTab('batches')} icon={<History size={20} />} label="Lotti & Scadenze" />
+            <NavItem active={activeTab === 'sales'} onClick={() => setActiveTab('sales')} icon={<FileText size={20} />} label="Vendite" />
             <NavItem active={activeTab === 'haccp'} onClick={() => setActiveTab('haccp')} icon={<ClipboardCheck size={20} />} label="HACCP" />
             {user.role === 'admin' && <NavItem active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<Users size={20} />} label="Utenti" />}
           </nav>
@@ -290,7 +299,7 @@ export default function App() {
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold capitalize">{activeTab}</h2>
+              <h2 className="text-2xl font-bold capitalize">{activeTab === 'inventory' ? 'Magazzino' : activeTab}</h2>
               <p className="text-gray-500 text-sm">Benvenuto, {user.email}</p>
             </div>
             <button 
@@ -374,13 +383,26 @@ export default function App() {
 
           {activeTab === 'inventory' && (
             <div className="space-y-4">
-              <div className="flex justify-end gap-2">
-                <button onClick={() => handleExportInventory('excel')} className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg hover:bg-emerald-100">
-                  <FileSpreadsheet size={16} /> Excel
-                </button>
-                <button onClick={() => handleExportInventory('pdf')} className="flex items-center gap-2 text-xs font-bold text-red-700 bg-red-50 px-3 py-2 rounded-lg hover:bg-red-100">
-                  <FileText size={16} /> PDF
-                </button>
+              <div className="flex justify-between items-center">
+                <div className="flex gap-2">
+                  <button onClick={() => setIsAddProductOpen(true)} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20">
+                    <Plus size={20} /> Nuovo Prodotto
+                  </button>
+                  <button onClick={() => setIsCaricoOpen(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20">
+                    <Plus size={20} /> Carico
+                  </button>
+                  <button onClick={() => setIsScaricoOpen(true)} className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20">
+                    <LogOut size={20} className="rotate-90" /> Scarico
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleExportInventory('excel')} className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg hover:bg-emerald-100">
+                    <FileSpreadsheet size={16} /> Excel
+                  </button>
+                  <button onClick={() => handleExportInventory('pdf')} className="flex items-center gap-2 text-xs font-bold text-red-700 bg-red-50 px-3 py-2 rounded-lg hover:bg-red-100">
+                    <FileText size={16} /> PDF
+                  </button>
+                </div>
               </div>
               <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <table className="w-full text-left border-collapse">
@@ -439,7 +461,7 @@ export default function App() {
               </div>
               <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <table className="w-full text-left border-collapse">
-                  <thead><tr className="bg-gray-50 border-b border-gray-200"><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Prodotto</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Lotto</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Quantità</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Scadenza</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Azioni</th></tr></thead>
+                  <thead><tr className="bg-gray-50 border-b border-gray-200"><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Prodotto</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Lotto</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Scadenza</th><th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Stato</th></tr></thead>
                   <tbody className="divide-y divide-gray-100">
                     {batches.filter(b => {
                       const p = products.find(prod => prod.id === b.product_id);
@@ -469,7 +491,6 @@ export default function App() {
                               <span className="font-mono font-medium">{b.lot_number}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 font-mono font-bold text-blue-600">{b.quantity} {p?.unit}</td>
                           <td className="px-6 py-4">
                             <div className="flex flex-col">
                               <span className={`text-sm font-bold ${isExpired ? 'text-red-600' : isExpiringSoon ? 'text-orange-500' : 'text-gray-700'}`}>
@@ -496,38 +517,94 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'sales' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Data</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Prodotto</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Lotto</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Quantità</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Cliente</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Indirizzo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sales.map(sale => {
+                      const p = products.find(prod => prod.id === sale.product_id);
+                      const b = batches.find(batch => batch.id === sale.batch_id);
+                      return (
+                        <tr key={sale.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 text-xs text-gray-500">{new Date(sale.date).toLocaleString()}</td>
+                          <td className="px-6 py-4 font-bold text-gray-900">{p?.name || 'Sconosciuto'}</td>
+                          <td className="px-6 py-4 font-mono text-sm">{b?.lot_number || 'Sconosciuto'}</td>
+                          <td className="px-6 py-4 font-mono text-sm font-bold">{sale.quantity} {p?.unit}</td>
+                          <td className="px-6 py-4 text-sm">{sale.customer_name}</td>
+                          <td className="px-6 py-4 text-sm text-gray-500">{sale.customer_address}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'haccp' && (
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Data</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Tipo</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Descrizione</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Operatore</th>
-                    <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Stato</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {logs.map(log => (
-                    <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 text-sm text-gray-500">{new Date(log.date).toLocaleString()}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
-                          log.type === 'temperature' ? 'bg-blue-50 text-blue-700' : 
-                          log.type === 'cleaning' ? 'bg-purple-50 text-purple-700' : 
-                          'bg-emerald-50 text-emerald-700'
-                        }`}>
-                          {log.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-medium">{log.description}</td>
-                      <td className="px-6 py-4 text-sm">{log.operator}</td>
-                      <td className="px-6 py-4"><StatusBadge status={log.status} /></td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Data</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Tipo</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Prodotto / Lotto</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Descrizione</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">Stato</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {logs.filter(l => l.description.toLowerCase().includes(searchTerm.toLowerCase()) || l.type.includes(searchTerm)).map(l => {
+                      const p = products.find(prod => prod.id === l.product_id);
+                      return (
+                        <tr 
+                          key={l.id} 
+                          className="hover:bg-amber-50/50 cursor-pointer transition-colors"
+                          onClick={() => setSelectedLog(l)}
+                        >
+                          <td className="px-6 py-4 text-sm font-mono whitespace-nowrap">{new Date(l.date).toLocaleString()}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              {l.type === 'temperature' && <Thermometer size={14} className="text-blue-500" />}
+                              {l.type === 'cleaning' && <CheckCircle2 size={14} className="text-emerald-500" />}
+                              {l.type === 'quality' && <ClipboardCheck size={14} className="text-purple-500" />}
+                              <span className="text-xs font-bold uppercase">{l.type}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-gray-900">{p?.name || '-'}</span>
+                              <span className="text-[10px] text-gray-400 font-mono">{l.lot_number || '-'}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{l.description}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                              l.status === 'ok' ? 'bg-emerald-100 text-emerald-700' : 
+                              l.status === 'warning' ? 'bg-amber-100 text-amber-700' : 
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {l.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -560,6 +637,137 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      {isCaricoOpen && (
+        <Modal title="Carico Magazzino" onClose={() => setIsCaricoOpen(false)}>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            const productId = formData.get('productId') as string;
+            const quantity = parseFloat(formData.get('quantity') as string);
+            const lotNumber = formData.get('lotNumber') as string;
+            const expiryDate = formData.get('expiryDate') as string;
+            const supplier = formData.get('supplier') as string;
+            const temp = formData.get('temp') ? parseFloat(formData.get('temp') as string) : undefined;
+
+            try {
+              // Create batch (server now handles product quantity update)
+              await api.inventory.addBatch({ productId, lotNumber, quantity, expiryDate, supplier, temperatureCheck: temp });
+              
+              // If temperature check, add HACCP log
+              if (temp !== undefined) {
+                await api.inventory.addLog({
+                  date: new Date().toISOString(),
+                  type: 'temperature',
+                  description: `Controllo temperatura carico: ${temp}°C (Lotto: ${lotNumber})`,
+                  operator: user.email,
+                  status: temp > 4 ? 'warning' : 'ok',
+                  product_id: productId,
+                  lot_number: lotNumber
+                });
+              }
+
+              fetchData();
+              setIsCaricoOpen(false);
+            } catch (err: any) {
+              alert(err.message);
+            }
+          }} className="p-1 space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prodotto</label>
+              <select name="productId" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                <option value="">Seleziona prodotto...</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità</label>
+                <input name="quantity" type="number" step="0.01" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto</label>
+                <input name="lotNumber" type="text" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scadenza</label>
+                <input name="expiryDate" type="date" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Temp. (°C)</label>
+                <input name="temp" type="number" step="0.1" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Fornitore</label>
+              <input name="supplier" type="text" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+            </div>
+            <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20">Conferma Carico</button>
+          </form>
+        </Modal>
+      )}
+
+      {isScaricoOpen && (
+        <Modal title="Scarico Magazzino (Vendita)" onClose={() => setIsScaricoOpen(false)}>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            const productId = formData.get('productId') as string;
+            const batchId = formData.get('batchId') as string;
+            const quantity = parseFloat(formData.get('quantity') as string);
+            const customerName = formData.get('customerName') as string;
+            const customerAddress = formData.get('customerAddress') as string;
+
+            try {
+              await api.inventory.addSale({
+                product_id: productId,
+                batch_id: batchId,
+                quantity,
+                customer_name: customerName,
+                customer_address: customerAddress
+              });
+
+              fetchData();
+              setIsScaricoOpen(false);
+            } catch (err: any) {
+              alert(err.message);
+            }
+          }} className="p-1 space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prodotto</label>
+              <select name="productId" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                <option value="">Seleziona prodotto...</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name} (Disp: {p.quantity} {p.unit})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto di Riferimento</label>
+              <select name="batchId" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                <option value="">Seleziona lotto...</option>
+                {batches.map(b => {
+                  const p = products.find(prod => prod.id === b.product_id);
+                  return <option key={b.id} value={b.id}>{p?.name} - Lotto: {b.lot_number} (Scad: {b.expiry_date})</option>;
+                })}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità da Scaricare</label>
+              <input name="quantity" type="number" step="0.01" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Nome Cliente</label>
+              <input name="customerName" type="text" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Indirizzo di Recapito</label>
+              <textarea name="customerAddress" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" rows={2}></textarea>
+            </div>
+            <button type="submit" className="w-full bg-orange-600 text-white py-3 rounded-xl font-bold hover:bg-orange-700 transition-colors shadow-lg shadow-orange-600/20">Conferma Scarico</button>
+          </form>
+        </Modal>
+      )}
 
       {isAddProductOpen && (
         <Modal title="Nuovo Prodotto" onClose={() => setIsAddProductOpen(false)}>
@@ -605,7 +813,31 @@ export default function App() {
 
       {isAddBatchOpen && (
         <Modal title="Nuovo Carico" onClose={() => setIsAddBatchOpen(false)}>
-          <form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); const data = { productId: fd.get('productId'), lotNumber: fd.get('lotNumber'), quantity: Number(fd.get('quantity')), expiryDate: fd.get('expiryDate'), supplier: fd.get('supplier'), temperatureCheck: fd.get('temp') ? Number(fd.get('temp')) : null }; await api.inventory.addBatch(data); if (data.temperatureCheck) await api.inventory.addLog({ type: 'temperature', description: `Ricezione: ${data.temperatureCheck}°C (Lotto ${data.lotNumber})`, operator: user.email, status: data.temperatureCheck > 4 ? 'warning' : 'ok' }); fetchData(); setIsAddBatchOpen(false); }} className="space-y-4">
+          <form onSubmit={async (e) => { 
+            e.preventDefault(); 
+            const fd = new FormData(e.currentTarget); 
+            const data = { 
+              productId: fd.get('productId'), 
+              lotNumber: fd.get('lotNumber'), 
+              quantity: Number(fd.get('quantity')), 
+              expiryDate: fd.get('expiryDate'), 
+              supplier: fd.get('supplier'), 
+              temperatureCheck: fd.get('temp') ? Number(fd.get('temp')) : null 
+            }; 
+            await api.inventory.addBatch(data); 
+            if (data.temperatureCheck) {
+              await api.inventory.addLog({ 
+                type: 'temperature', 
+                description: `Ricezione: ${data.temperatureCheck}°C (Lotto ${data.lotNumber})`, 
+                operator: user.email, 
+                status: data.temperatureCheck > 4 ? 'warning' : 'ok',
+                productId: data.productId,
+                lotNumber: data.lotNumber
+              }); 
+            }
+            fetchData(); 
+            setIsAddBatchOpen(false); 
+          }} className="space-y-4">
             <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prodotto</label><select name="productId" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
             <div className="grid grid-cols-2 gap-4">
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto</label><input name="lotNumber" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
@@ -623,26 +855,54 @@ export default function App() {
 
       {isAddLogOpen && (
         <Modal title="Nuovo Registro HACCP" onClose={() => setIsAddLogOpen(false)}>
-          <form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); await api.inventory.addLog({ type: fd.get('type'), description: fd.get('description'), operator: user.email, status: fd.get('status') }); fetchData(); setIsAddLogOpen(false); }} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Tipo</label>
-              <select name="type" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                <option value="quality">Controllo Qualità</option>
-                <option value="cleaning">Pulizia</option>
-                <option value="temperature">Temperatura</option>
-              </select>
+          <form onSubmit={async (e) => { 
+            e.preventDefault(); 
+            const fd = new FormData(e.currentTarget); 
+            await api.inventory.addLog({ 
+              type: fd.get('type'), 
+              description: fd.get('description'), 
+              operator: user.email, 
+              status: fd.get('status'),
+              productId: fd.get('productId') || null,
+              lotNumber: fd.get('lotNumber') || null
+            }); 
+            fetchData(); 
+            setIsAddLogOpen(false); 
+          }} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Tipo</label>
+                <select name="type" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <option value="quality">Controllo Qualità</option>
+                  <option value="cleaning">Pulizia</option>
+                  <option value="temperature">Temperatura</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Stato</label>
+                <select name="status" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <option value="ok">Conforme (OK)</option>
+                  <option value="warning">Avviso (Warning)</option>
+                  <option value="critical">Critico (Critical)</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prodotto (Opzionale)</label>
+                <select name="productId" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <option value="">Nessuno</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto (Opzionale)</label>
+                <input name="lotNumber" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" placeholder="Es: LOT123" />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Descrizione</label>
               <textarea name="description" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" rows={3} placeholder="Dettagli dell'operazione..." />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Stato</label>
-              <select name="status" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                <option value="ok">Conforme (OK)</option>
-                <option value="warning">Avviso (Warning)</option>
-                <option value="critical">Critico (Critical)</option>
-              </select>
             </div>
             <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors">Salva Registro</button>
           </form>
@@ -682,6 +942,64 @@ export default function App() {
         </Modal>
       )}
 
+      {selectedLog && (
+        <Modal title={`Dettagli Registro HACCP`} onClose={() => setSelectedLog(null)}>
+          <form onSubmit={async (e) => { 
+            e.preventDefault(); 
+            const fd = new FormData(e.currentTarget); 
+            await api.inventory.updateLog(selectedLog.id, { 
+              type: fd.get('type'), 
+              description: fd.get('description'), 
+              status: fd.get('status'),
+              productId: fd.get('productId') || null,
+              lotNumber: fd.get('lotNumber') || null
+            }); 
+            fetchData(); 
+            setSelectedLog(null); 
+          }} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Tipo</label><select name="type" defaultValue={selectedLog.type} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option value="temperature">Temperatura</option><option value="cleaning">Pulizia</option><option value="quality">Qualità</option></select></div>
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Stato</label><select name="status" defaultValue={selectedLog.status} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option></select></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Prodotto</label>
+                <select name="productId" defaultValue={selectedLog.product_id || ''} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  <option value="">Nessuno</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto</label><input name="lotNumber" defaultValue={selectedLog.lot_number || ''} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
+            </div>
+            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Descrizione</label><textarea name="description" defaultValue={selectedLog.description} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" rows={3} /></div>
+            <div className="text-[10px] text-gray-400 uppercase flex justify-between">
+              <span>Operatore: {selectedLog.operator}</span>
+              <span>Data: {new Date(selectedLog.date).toLocaleString()}</span>
+            </div>
+            <div className="flex gap-3 pt-4">
+              {confirmDelete?.id === selectedLog.id ? (
+                <div className="flex-1 flex gap-2">
+                  <button type="button" onClick={() => setConfirmDelete(null)} className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold">Annulla</button>
+                  <button type="button" onClick={async () => { 
+                    try {
+                      await api.inventory.deleteLog(selectedLog.id); 
+                      await fetchData(); 
+                      setSelectedLog(null); 
+                      setConfirmDelete(null); 
+                    } catch (err: any) {
+                      alert('Errore eliminazione: ' + err.message);
+                    }
+                  }} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">Conferma</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirmDelete({ id: selectedLog.id, type: 'log' })} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              )}
+              <button type="submit" className="flex-[2] bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition-colors shadow-lg shadow-purple-600/20">Aggiorna</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {selectedProduct && (
         <Modal title={`Dettagli Prodotto: ${selectedProduct.name}`} onClose={() => setSelectedProduct(null)}>
           <form onSubmit={async (e) => { 
@@ -710,7 +1028,23 @@ export default function App() {
             </div>
             <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scorta Minima</label><input name="min_stock" type="number" defaultValue={selectedProduct.min_stock} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
             <div className="flex gap-3 pt-4">
-              <button type="button" onClick={async () => { if(confirm('Eliminare definitivamente questo prodotto e tutti i suoi lotti?')) { await api.inventory.deleteProduct(selectedProduct.id); fetchData(); setSelectedProduct(null); } }} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              {confirmDelete?.id === selectedProduct.id ? (
+                <div className="flex-1 flex gap-2">
+                  <button type="button" onClick={() => setConfirmDelete(null)} className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold">Annulla</button>
+                  <button type="button" onClick={async () => { 
+                    try {
+                      await api.inventory.deleteProduct(selectedProduct.id); 
+                      await fetchData(); 
+                      setSelectedProduct(null); 
+                      setConfirmDelete(null); 
+                    } catch (err: any) {
+                      alert('Errore eliminazione: ' + err.message);
+                    }
+                  }} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">Conferma</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirmDelete({ id: selectedProduct.id, type: 'product' })} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              )}
               <button type="submit" className="flex-[2] bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20">Aggiorna</button>
             </div>
           </form>
@@ -724,7 +1058,6 @@ export default function App() {
             const fd = new FormData(e.currentTarget); 
             await api.inventory.updateBatch(selectedBatch.id, { 
               lotNumber: fd.get('lotNumber'), 
-              quantity: Number(fd.get('quantity')), 
               expiryDate: fd.get('expiryDate'), 
               supplier: fd.get('supplier'), 
               temperatureCheck: fd.get('temp') ? Number(fd.get('temp')) : null 
@@ -740,15 +1073,28 @@ export default function App() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto</label><input name="lotNumber" defaultValue={selectedBatch.lot_number} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
-              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità</label><input name="quantity" type="number" defaultValue={selectedBatch.quantity} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scadenza</label><input name="expiryDate" type="date" defaultValue={selectedBatch.expiry_date} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
-              <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Temp. (°C)</label><input name="temp" type="number" step="0.1" defaultValue={selectedBatch.temperature_check || ''} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
             </div>
+            <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Temp. (°C)</label><input name="temp" type="number" step="0.1" defaultValue={selectedBatch.temperature_check || ''} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
             <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Fornitore</label><input name="supplier" defaultValue={selectedBatch.supplier} required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" /></div>
             <div className="flex gap-3 pt-4">
-              <button type="button" onClick={async () => { if(confirm('Eliminare questo lotto?')) { await api.inventory.deleteBatch(selectedBatch.id); fetchData(); setSelectedBatch(null); } }} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              {confirmDelete?.id === selectedBatch.id ? (
+                <div className="flex-1 flex gap-2">
+                  <button type="button" onClick={() => setConfirmDelete(null)} className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold">Annulla</button>
+                  <button type="button" onClick={async () => { 
+                    try {
+                      await api.inventory.deleteBatch(selectedBatch.id); 
+                      await fetchData(); 
+                      setSelectedBatch(null); 
+                      setConfirmDelete(null); 
+                    } catch (err: any) {
+                      alert('Errore eliminazione: ' + err.message);
+                    }
+                  }} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">Conferma</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirmDelete({ id: selectedBatch.id, type: 'batch' })} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors">Elimina</button>
+              )}
               <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20">Aggiorna</button>
             </div>
           </form>

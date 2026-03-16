@@ -2,20 +2,30 @@ export interface Product {
   id: string;
   name: string;
   category: string;
-  unit: string; // kg, litri, pezzi, etc.
+  unit: string;
   min_stock: number;
+  quantity: number; // Added for stock tracking
   barcode?: string;
 }
 
 export interface Batch {
   id: string;
-  productId: string;
-  lotNumber: string;
-  quantity: number;
-  expiryDate: string;
-  receivedDate: string;
+  product_id: string;
+  lot_number: string;
+  expiry_date: string;
+  received_date: string;
   supplier: string;
-  temperatureCheck?: number; // HACCP
+  temperature_check?: number;
+}
+
+export interface Sale {
+  id: string;
+  product_id: string;
+  batch_id: string;
+  quantity: number;
+  customer_name: string;
+  customer_address: string;
+  date: string;
 }
 
 export interface HACCPLog {
@@ -25,6 +35,8 @@ export interface HACCPLog {
   description: string;
   operator: string;
   status: 'ok' | 'warning' | 'critical';
+  product_id?: string;
+  lot_number?: string;
 }
 
 export interface User {
@@ -35,4 +47,4 @@ export interface User {
   created_at?: string;
 }
 
-export type Tab = 'dashboard' | 'inventory' | 'batches' | 'haccp' | 'admin';
+export type Tab = 'dashboard' | 'inventory' | 'batches' | 'sales' | 'haccp' | 'admin';

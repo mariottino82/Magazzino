@@ -138,7 +138,8 @@ export const BulkOperation: React.FC<BulkOperationProps> = ({ onClose, onSuccess
         type: mode === 'carico' ? 'quality' : 'quality',
         description: `${mode === 'carico' ? 'Carico' : 'Scarico'} Bulk di ${scannedItems.length} prodotti`,
         operator: 'Sistema',
-        status: 'ok'
+        status: 'ok',
+        lotNumber: mode === 'carico' ? fd.get('lotNumber') : 'SCARICO_BULK'
       });
       onSuccess();
       onClose();

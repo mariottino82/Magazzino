@@ -51,7 +51,11 @@ export const api = {
     updateBatch: (id: string, data: any) => fetchApi(`/api/batches/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
     addBulkBatches: (data: any) => fetchApi('/api/batches/bulk', { method: 'POST', body: JSON.stringify(data) }),
     deleteBatch: (id: string) => fetchApi(`/api/batches/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    getSales: () => fetchApi('/api/sales'),
+    addSale: (data: any) => fetchApi('/api/sales', { method: 'POST', body: JSON.stringify(data) }),
     getLogs: () => fetchApi('/api/logs'),
     addLog: (data: any) => fetchApi('/api/logs', { method: 'POST', body: JSON.stringify(data) }),
+    updateLog: (id: string, data: any) => fetchApi(`/api/logs/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteLog: (id: string) => fetchApi(`/api/logs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
 };

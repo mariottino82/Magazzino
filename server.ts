@@ -157,25 +157,40 @@ async function startServer() {
   });
 
   app.patch('/api/products/:id', authenticate, (req, res) => {
-    const { name, category, unit, min_stock, barcode } = req.body;
-    db.prepare('UPDATE products SET name = COALESCE(?, name), category = COALESCE(?, category), unit = COALESCE(?, unit), min_stock = COALESCE(?, min_stock), barcode = COALESCE(?, barcode) WHERE id = ?')
-      .run(name, category, unit, min_stock, barcode, req.params.id);
+    const { name, category, unit, min_stock, barcode, quantity } = req.body;
+    db.prepare('UPDATE products SET name = COALESCE(?, name), category = COALESCE(?, category), unit = COALESCE(?, unit), min_stock = COALESCE(?, min_stock), barcode = COALESCE(?, barcode), quantity = COALESCE(?, quantity) WHERE id = ?')
+      .run(name, category, unit, min_stock, barcode, quantity, req.params.id);
     res.json({ message: 'Product updated' });
   });
 
   app.delete('/api/products/:id', authenticate, (req, res) => {
-    db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
-    db.prepare('DELETE FROM batches WHERE product_id = ?').run(req.params.id);
-    res.json({ message: 'Product and associated batches deleted' });
+    const productId = req.params.id;
+    console.log(`[DB] Deleting product: ${productId}`);
+    
+    try {
+      db.transaction(() => {
+        // Delete child records first
+        db.prepare('DELETE FROM sales WHERE product_id = ?').run(productId);
+        db.prepare('DELETE FROM haccp_logs WHERE product_id = ?').run(productId);
+        db.prepare('DELETE FROM batches WHERE product_id = ?').run(productId);
+        // Finally delete the product
+        const result = db.prepare('DELETE FROM products WHERE id = ?').run(productId);
+        console.log(`[DB] Deleted ${result.changes} product and its associated data`);
+        res.json({ message: 'Product and associated data deleted', changes: result.changes });
+      })();
+    } catch (err: any) {
+      console.error('[DB] Error deleting product:', err);
+      res.status(500).json({ error: 'Failed to delete product: ' + err.message });
+    }
   });
 
   app.post('/api/products', authenticate, (req, res) => {
-    const { name, category, unit, min_stock, barcode } = req.body;
+    const { name, category, unit, min_stock, barcode, quantity } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     try {
-      db.prepare('INSERT INTO products (id, name, category, unit, min_stock, barcode) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, name, category, unit, min_stock || 5, barcode || null);
-      res.json({ id, name, category, unit, min_stock: min_stock || 5, barcode });
+      db.prepare('INSERT INTO products (id, name, category, unit, min_stock, barcode, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, name, category, unit, min_stock || 5, barcode || null, quantity || 0);
+      res.json({ id, name, category, unit, min_stock: min_stock || 5, barcode, quantity: quantity || 0 });
     } catch (err) {
       res.status(400).json({ error: 'Barcode already exists or invalid data' });
     }
@@ -191,22 +206,21 @@ async function startServer() {
     const { items, lotNumber, expiryDate, supplier, temperatureCheck } = req.body;
     const receivedDate = new Date().toISOString().split('T')[0];
     
-    const stmt = db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertBatchStmt = db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const updateProductStmt = db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?');
     
-    const results = [];
-    const transaction = db.transaction((items) => {
-      for (const item of items) {
-        const id = Math.random().toString(36).substr(2, 9);
-        stmt.run(id, item.productId, lotNumber, item.quantity, expiryDate, receivedDate, supplier, temperatureCheck);
-        results.push({ id, ...item });
-      }
-    });
-
     try {
-      transaction(items);
+      db.transaction(() => {
+        for (const item of items) {
+          const id = Math.random().toString(36).substr(2, 9);
+          insertBatchStmt.run(id, item.productId, lotNumber, item.quantity, expiryDate, receivedDate, supplier, temperatureCheck);
+          updateProductStmt.run(item.quantity, item.productId);
+        }
+      })();
       res.json({ message: 'Bulk upload successful', count: items.length });
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to process bulk upload' });
+    } catch (err: any) {
+      console.error('[DB] Bulk batch error:', err);
+      res.status(500).json({ error: 'Failed to process bulk upload: ' + err.message });
     }
   });
 
@@ -217,23 +231,74 @@ async function startServer() {
 
   app.patch('/api/batches/:id', authenticate, (req, res) => {
     const { lotNumber, quantity, expiryDate, supplier, temperatureCheck } = req.body;
-    db.prepare('UPDATE batches SET lot_number = COALESCE(?, lot_number), quantity = COALESCE(?, quantity), expiry_date = COALESCE(?, expiry_date), supplier = COALESCE(?, supplier), temperature_check = COALESCE(?, temperature_check) WHERE id = ?')
-      .run(lotNumber, quantity, expiryDate, supplier, temperatureCheck, req.params.id);
-    res.json({ message: 'Batch updated' });
+    const batchId = req.params.id;
+
+    try {
+      db.transaction(() => {
+        if (quantity !== undefined) {
+          const oldBatch = db.prepare('SELECT product_id, quantity FROM batches WHERE id = ?').get(batchId) as any;
+          if (oldBatch) {
+            const diff = Number(quantity) - oldBatch.quantity;
+            db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?')
+              .run(diff, oldBatch.product_id);
+          }
+        }
+
+        db.prepare('UPDATE batches SET lot_number = COALESCE(?, lot_number), quantity = COALESCE(?, quantity), expiry_date = COALESCE(?, expiry_date), supplier = COALESCE(?, supplier), temperature_check = COALESCE(?, temperature_check) WHERE id = ?')
+          .run(lotNumber, quantity, expiryDate, supplier, temperatureCheck, batchId);
+      })();
+      res.json({ message: 'Batch updated and stock adjusted' });
+    } catch (err: any) {
+      console.error('[DB] Batch update error:', err);
+      res.status(400).json({ error: 'Failed to update batch: ' + err.message });
+    }
   });
 
   app.post('/api/batches', authenticate, (req, res) => {
     const { productId, lotNumber, quantity, expiryDate, supplier, temperatureCheck } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     const receivedDate = new Date().toISOString().split('T')[0];
-    db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, productId, lotNumber, quantity, expiryDate, receivedDate, supplier, temperatureCheck);
-    res.json({ id, productId, lotNumber, quantity, expiryDate, receivedDate, supplier, temperatureCheck });
+    const qty = Number(quantity) || 0;
+
+    try {
+      db.transaction(() => {
+        db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, productId, lotNumber, qty, expiryDate, receivedDate, supplier, temperatureCheck);
+        
+        db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?')
+          .run(qty, productId);
+      })();
+      res.json({ id, productId, lotNumber, quantity: qty, expiryDate, receivedDate, supplier, temperatureCheck });
+    } catch (err: any) {
+      console.error('[DB] Batch creation error:', err);
+      res.status(400).json({ error: 'Failed to create batch: ' + err.message });
+    }
   });
 
   app.delete('/api/batches/:id', authenticate, (req, res) => {
-    db.prepare('DELETE FROM batches WHERE id = ?').run(req.params.id);
-    res.json({ message: 'Batch deleted' });
+    const batchId = req.params.id;
+    console.log(`[DB] Deleting batch: ${batchId}`);
+    
+    try {
+      db.transaction(() => {
+        const batch = db.prepare('SELECT product_id, quantity FROM batches WHERE id = ?').get(batchId) as any;
+        if (batch) {
+          // Decrement product quantity when a batch is deleted
+          db.prepare('UPDATE products SET quantity = quantity - ? WHERE id = ?')
+            .run(batch.quantity, batch.product_id);
+        }
+
+        // Delete child records first (sales reference batches)
+        db.prepare('DELETE FROM sales WHERE batch_id = ?').run(batchId);
+        
+        const result = db.prepare('DELETE FROM batches WHERE id = ?').run(batchId);
+        console.log(`[DB] Deleted ${result.changes} batches`);
+        res.json({ message: 'Batch deleted and stock updated', changes: result.changes });
+      })();
+    } catch (err: any) {
+      console.error('[DB] Error deleting batch:', err);
+      res.status(500).json({ error: 'Failed to delete batch: ' + err.message });
+    }
   });
 
   app.get('/api/logs', authenticate, (req, res) => {
@@ -241,13 +306,57 @@ async function startServer() {
     res.json(logs);
   });
 
+  app.patch('/api/logs/:id', authenticate, (req, res) => {
+    const { type, description, operator, status, productId, lotNumber } = req.body;
+    db.prepare('UPDATE haccp_logs SET type = COALESCE(?, type), description = COALESCE(?, description), operator = COALESCE(?, operator), status = COALESCE(?, status), product_id = COALESCE(?, product_id), lot_number = COALESCE(?, lot_number) WHERE id = ?')
+      .run(type, description, operator, status, productId, lotNumber, req.params.id);
+    res.json({ message: 'Log updated' });
+  });
+
   app.post('/api/logs', authenticate, (req, res) => {
-    const { type, description, operator, status } = req.body;
+    const { type, description, operator, status, productId, lotNumber } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     const date = new Date().toISOString();
-    db.prepare('INSERT INTO haccp_logs (id, date, type, description, operator, status) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, date, type, description, operator, status);
-    res.json({ id, date, type, description, operator, status });
+    db.prepare('INSERT INTO haccp_logs (id, date, type, description, operator, status, product_id, lot_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, date, type, description, operator, status, productId || null, lotNumber || null);
+    res.json({ id, date, type, description, operator, status, productId, lotNumber });
+  });
+
+  app.delete('/api/logs/:id', authenticate, (req, res) => {
+    console.log(`[DB] Deleting log: ${req.params.id}`);
+    const result = db.prepare('DELETE FROM haccp_logs WHERE id = ?').run(req.params.id);
+    console.log(`[DB] Deleted ${result.changes} logs`);
+    res.json({ message: 'Log deleted', changes: result.changes });
+  });
+
+  // --- Sales Routes ---
+  app.get('/api/sales', authenticate, (req, res) => {
+    const sales = db.prepare('SELECT * FROM sales ORDER BY date DESC').all();
+    res.json(sales);
+  });
+
+  app.post('/api/sales', authenticate, (req, res) => {
+    const { product_id, batch_id, quantity, customer_name, customer_address } = req.body;
+    const id = Math.random().toString(36).substr(2, 9);
+    const date = new Date().toISOString();
+    
+    try {
+      db.transaction(() => {
+        db.prepare('INSERT INTO sales (id, product_id, batch_id, quantity, customer_name, customer_address, date) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(id, product_id, batch_id, quantity, customer_name, customer_address, date);
+        
+        // Update product quantity
+        db.prepare('UPDATE products SET quantity = quantity - ? WHERE id = ?')
+          .run(quantity, product_id);
+
+        // Update batch quantity
+        db.prepare('UPDATE batches SET quantity = quantity - ? WHERE id = ?')
+          .run(quantity, batch_id);
+      })();
+      res.json({ id, product_id, batch_id, quantity, customer_name, customer_address, date });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // Global Error Handler for API

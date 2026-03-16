@@ -19,6 +19,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const db = new Database(dbPath);
+db.pragma('foreign_keys = ON');
 
 // --- Migration System ---
 db.exec(`
@@ -96,6 +97,56 @@ const migrations = [
       } catch (err) {
         console.log('[DB] Column temperature_check might already exist, skipping...');
       }
+    }
+  },
+  {
+    id: 4,
+    description: 'Link haccp_logs to products and lots',
+    run: () => {
+      try {
+        db.exec('ALTER TABLE haccp_logs ADD COLUMN product_id TEXT');
+      } catch (err) {
+        console.log('[DB] Column product_id might already exist, skipping...');
+      }
+      try {
+        db.exec('ALTER TABLE haccp_logs ADD COLUMN lot_number TEXT');
+      } catch (err) {
+        console.log('[DB] Column lot_number might already exist, skipping...');
+      }
+    }
+  },
+  {
+    id: 5,
+    description: 'Add quantity to products and create sales table',
+    run: () => {
+      try {
+        db.exec('ALTER TABLE products ADD COLUMN quantity REAL DEFAULT 0');
+        // Initialize quantity from existing batches
+        db.exec(`
+          UPDATE products 
+          SET quantity = (
+            SELECT COALESCE(SUM(quantity), 0) 
+            FROM batches 
+            WHERE batches.product_id = products.id
+          )
+        `);
+      } catch (err) {
+        console.log('[DB] Column quantity might already exist, skipping...');
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sales (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL,
+          batch_id TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          customer_name TEXT NOT NULL,
+          customer_address TEXT NOT NULL,
+          date TEXT NOT NULL,
+          FOREIGN KEY (product_id) REFERENCES products(id),
+          FOREIGN KEY (batch_id) REFERENCES batches(id)
+        )
+      `);
     }
   }
 ];
