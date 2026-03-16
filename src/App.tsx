@@ -1134,19 +1134,19 @@ function StatusBadge({ status }: { status: 'ok' | 'warning' | 'critical' }) {
 
 function Modal({ title, children, onClose }: { title: string, children: React.ReactNode, onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 20 }} 
+        initial={{ opacity: 0, scale: 0.95, y: '100%' }} 
         animate={{ opacity: 1, scale: 1, y: 0 }} 
-        className="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[90vh]"
+        className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]"
       >
         <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between shrink-0 bg-white sticky top-0 z-10">
           <h3 className="text-lg sm:text-xl font-bold truncate pr-4">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 transition-colors shrink-0">
-            <XCircle size={28} className="sm:w-8 sm:h-8" />
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 transition-colors shrink-0 p-1">
+            <XCircle size={24} className="sm:w-8 sm:h-8" />
           </button>
         </div>
-        <div className="p-4 sm:p-6 overflow-y-auto">
+        <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain pb-10 sm:pb-6">
           {children}
         </div>
       </motion.div>
