@@ -116,15 +116,18 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, onClose 
   };
 
   useEffect(() => {
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
     startScanner();
     return () => {
+      document.body.style.overflow = originalStyle;
       stopScanner();
     };
   }, []);
 
   return (
-    <div className="fixed inset-0 bg-black/90 z-[70] flex flex-col items-center justify-center p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 overflow-hidden">
+      <div className="relative w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
         <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <Camera className="text-emerald-600" size={20} />

@@ -1133,23 +1133,45 @@ function StatusBadge({ status }: { status: 'ok' | 'warning' | 'critical' }) {
 }
 
 function Modal({ title, children, onClose }: { title: string, children: React.ReactNode, onClose: () => void }) {
+  useEffect(() => {
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: '100%' }} 
-        animate={{ opacity: 1, scale: 1, y: 0 }} 
-        className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]"
-      >
-        <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between shrink-0 bg-white sticky top-0 z-10">
-          <h3 className="text-lg sm:text-xl font-bold truncate pr-4">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 transition-colors shrink-0 p-1">
-            <XCircle size={24} className="sm:w-8 sm:h-8" />
-          </button>
-        </div>
-        <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain pb-10 sm:pb-6">
-          {children}
-        </div>
-      </motion.div>
+    <div className="fixed inset-0 z-[999] flex items-center justify-center overflow-x-hidden overflow-y-auto outline-none focus:outline-none bg-black/60 backdrop-blur-sm p-4">
+      <div className="relative w-full max-w-md mx-auto my-auto">
+        {/* Backdrop click area (invisible but covers the whole screen) */}
+        <div className="fixed inset-0" onClick={onClose}></div>
+        
+        {/* Modal Content */}
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95, y: 10 }} 
+          animate={{ opacity: 1, scale: 1, y: 0 }} 
+          exit={{ opacity: 0, scale: 0.95, y: 10 }}
+          className="relative bg-white w-full rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between shrink-0 bg-white sticky top-0 z-10">
+            <h3 className="text-lg sm:text-xl font-bold truncate pr-4 text-gray-900">{title}</h3>
+            <button 
+              onClick={onClose} 
+              className="p-2 -mr-2 text-gray-400 hover:text-gray-900 transition-colors rounded-full hover:bg-gray-100"
+              aria-label="Chiudi"
+            >
+              <XCircle size={24} />
+            </button>
+          </div>
+          <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain bg-white">
+            <div className="space-y-4">
+              {children}
+            </div>
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }
