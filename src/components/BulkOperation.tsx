@@ -278,18 +278,18 @@ export const BulkOperation: React.FC<BulkOperationProps> = ({ onClose, onSuccess
                 </div>
               </>
             )}
-            <div className="flex gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button 
                 type="button" 
                 onClick={onClose}
-                className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-all"
+                className="order-2 sm:order-1 flex-1 px-6 py-3 border border-gray-200 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-all"
               >
                 Annulla
               </button>
               <button 
                 type="submit" 
                 disabled={scannedItems.length === 0 || isSubmitting}
-                className="flex-2 flex items-center justify-center gap-2 bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-600/20"
+                className="order-1 sm:order-2 flex-[2] flex items-center justify-center gap-2 bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-600/20"
               >
                 <Save size={20} /> {isSubmitting ? 'Salvataggio...' : 'Registra Tutto'}
               </button>

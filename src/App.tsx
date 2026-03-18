@@ -36,6 +36,7 @@ export default function App() {
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isHaccpScannerOpen, setIsHaccpScannerOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
@@ -316,11 +317,17 @@ export default function App() {
             </div>
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => setIsBulkOpen(true)} 
+                onClick={() => {
+                  if (activeTab === 'haccp') {
+                    setIsHaccpScannerOpen(true);
+                  } else {
+                    setIsBulkOpen(true);
+                  }
+                }} 
                 className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl flex items-center gap-2 transition-colors font-bold"
-                title="Operazione Multipla"
+                title={activeTab === 'haccp' ? "Cerca Lotto" : "Operazione Multipla"}
               >
-                <ScanLine size={18} /> <span className="hidden lg:inline">Bulk</span>
+                <ScanLine size={18} /> <span className="hidden lg:inline">{activeTab === 'haccp' ? 'Cerca Lotto' : 'Bulk'}</span>
               </button>
               {activeTab !== 'dashboard' && (
                 <button 
@@ -383,23 +390,23 @@ export default function App() {
 
           {activeTab === 'inventory' && (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div className="flex gap-2">
-                  <button onClick={() => setIsAddProductOpen(true)} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                  <button onClick={() => setIsAddProductOpen(true)} className="flex items-center justify-center sm:justify-start gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20 w-full sm:w-auto">
                     <Plus size={20} /> Nuovo Prodotto
                   </button>
-                  <button onClick={() => setIsCaricoOpen(true)} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20">
+                  <button onClick={() => setIsCaricoOpen(true)} className="flex items-center justify-center sm:justify-start gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 w-full sm:w-auto">
                     <Plus size={20} /> Carico
                   </button>
-                  <button onClick={() => setIsScaricoOpen(true)} className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20">
+                  <button onClick={() => setIsScaricoOpen(true)} className="flex items-center justify-center sm:justify-start gap-2 bg-orange-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20 w-full sm:w-auto">
                     <LogOut size={20} className="rotate-90" /> Scarico
                   </button>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => handleExportInventory('excel')} className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg hover:bg-emerald-100">
+                <div className="flex gap-2 w-full sm:w-auto justify-end">
+                  <button onClick={() => handleExportInventory('excel')} className="flex items-center gap-2 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg hover:bg-emerald-100 flex-1 sm:flex-none justify-center">
                     <FileSpreadsheet size={16} /> Excel
                   </button>
-                  <button onClick={() => handleExportInventory('pdf')} className="flex items-center gap-2 text-xs font-bold text-red-700 bg-red-50 px-3 py-2 rounded-lg hover:bg-red-100">
+                  <button onClick={() => handleExportInventory('pdf')} className="flex items-center gap-2 text-xs font-bold text-red-700 bg-red-50 px-3 py-2 rounded-lg hover:bg-red-100 flex-1 sm:flex-none justify-center">
                     <FileText size={16} /> PDF
                   </button>
                 </div>
@@ -566,7 +573,11 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {logs.filter(l => l.description.toLowerCase().includes(searchTerm.toLowerCase()) || l.type.includes(searchTerm)).map(l => {
+                    {logs.filter(l => 
+                      l.description.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                      l.type.includes(searchTerm) ||
+                      (l.lot_number && l.lot_number.toLowerCase().includes(searchTerm.toLowerCase()))
+                    ).map(l => {
                       const p = products.find(prod => prod.id === l.product_id);
                       return (
                         <tr 
@@ -680,7 +691,7 @@ export default function App() {
                 {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità</label>
                 <input name="quantity" type="number" step="0.01" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
@@ -690,7 +701,7 @@ export default function App() {
                 <input name="lotNumber" type="text" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scadenza</label>
                 <input name="expiryDate" type="date" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20" />
@@ -782,7 +793,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Categoria</label><select name="category" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option>Fresco</option><option>Secco</option><option>Surgelato</option></select></div>
               <div><label className="block text-xs font-bold uppercase text-gray-400 mb-1">Unità</label><select name="unit" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl"><option>kg</option><option>litri</option><option>pezzi</option></select></div>
             </div>
@@ -808,6 +819,20 @@ export default function App() {
             setIsScannerOpen(false);
           }} 
           onClose={() => setIsScannerOpen(false)} 
+        />
+      )}
+
+      {isHaccpScannerOpen && (
+        <BarcodeScanner 
+          onScan={(code) => {
+            setSearchTerm(code);
+            setIsHaccpScannerOpen(false);
+            const foundLog = logs.find(l => l.lot_number === code);
+            if (foundLog) {
+              setSelectedLog(foundLog);
+            }
+          }} 
+          onClose={() => setIsHaccpScannerOpen(false)} 
         />
       )}
 
