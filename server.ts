@@ -157,9 +157,9 @@ async function startServer() {
   });
 
   app.patch('/api/products/:id', authenticate, (req, res) => {
-    const { name, category, unit, min_stock, barcode, quantity } = req.body;
-    db.prepare('UPDATE products SET name = COALESCE(?, name), category = COALESCE(?, category), unit = COALESCE(?, unit), min_stock = COALESCE(?, min_stock), barcode = COALESCE(?, barcode), quantity = COALESCE(?, quantity) WHERE id = ?')
-      .run(name, category, unit, min_stock, barcode, quantity, req.params.id);
+    const { name, category, unit, min_stock, quantity } = req.body;
+    db.prepare('UPDATE products SET name = COALESCE(?, name), category = COALESCE(?, category), unit = COALESCE(?, unit), min_stock = COALESCE(?, min_stock), quantity = COALESCE(?, quantity) WHERE id = ?')
+      .run(name, category, unit, min_stock, quantity, req.params.id);
     res.json({ message: 'Product updated' });
   });
 
@@ -185,36 +185,51 @@ async function startServer() {
   });
 
   app.post('/api/products', authenticate, (req, res) => {
-    const { name, category, unit, min_stock, barcode, quantity } = req.body;
+    const { name, category, unit, min_stock, quantity } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     try {
-      db.prepare('INSERT INTO products (id, name, category, unit, min_stock, barcode, quantity) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(id, name, category, unit, min_stock || 5, barcode || null, quantity || 0);
-      res.json({ id, name, category, unit, min_stock: min_stock || 5, barcode, quantity: quantity || 0 });
-    } catch (err) {
-      res.status(400).json({ error: 'Barcode already exists or invalid data' });
+      db.prepare('INSERT INTO products (id, name, category, unit, min_stock, quantity) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, name, category, unit, min_stock || 5, quantity || 0);
+      res.json({ id, name, category, unit, min_stock: min_stock || 5, quantity: quantity || 0 });
+    } catch (err: any) {
+      console.error('Error adding product:', err);
+      res.status(400).json({ error: 'Dati non validi o errore del database: ' + err.message });
     }
   });
 
   app.get('/api/products/barcode/:barcode', authenticate, (req, res) => {
-    const product = db.prepare('SELECT * FROM products WHERE barcode = ?').get(req.params.barcode);
-    if (!product) return res.status(404).json({ error: 'Product not found' });
+    const batch = db.prepare('SELECT product_id FROM batches WHERE barcode = ?').get(req.params.barcode) as any;
+    if (!batch) return res.status(404).json({ error: 'Product not found for this barcode' });
+    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(batch.product_id);
     res.json(product);
   });
 
   app.post('/api/batches/bulk', authenticate, (req, res) => {
-    const { items, lotNumber, expiryDate, supplier, temperatureCheck } = req.body;
+    const items = Array.isArray(req.body) ? req.body : req.body.items;
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Invalid bulk data' });
+    }
+
     const receivedDate = new Date().toISOString().split('T')[0];
-    
-    const insertBatchStmt = db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertBatchStmt = db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check, barcode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const updateProductStmt = db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?');
     
     try {
       db.transaction(() => {
         for (const item of items) {
           const id = Math.random().toString(36).substr(2, 9);
-          insertBatchStmt.run(id, item.productId, lotNumber, item.quantity, expiryDate, receivedDate, supplier, temperatureCheck);
-          updateProductStmt.run(item.quantity, item.productId);
+          insertBatchStmt.run(
+            id, 
+            item.product_id || item.productId, 
+            item.lot_number || item.lotNumber, 
+            item.quantity, 
+            item.expiry_date || item.expiryDate, 
+            receivedDate, 
+            item.supplier, 
+            item.temperature || item.temperatureCheck || null, 
+            item.barcode || null
+          );
+          updateProductStmt.run(item.quantity, item.product_id || item.productId);
         }
       })();
       res.json({ message: 'Bulk upload successful', count: items.length });
@@ -230,9 +245,9 @@ async function startServer() {
   });
 
   app.patch('/api/batches/:id', authenticate, (req, res) => {
-    const { lotNumber, quantity, expiryDate, supplier, temperatureCheck } = req.body;
+    const { lotNumber, quantity, expiryDate, supplier, temperatureCheck, barcode } = req.body;
     const batchId = req.params.id;
-
+    
     try {
       db.transaction(() => {
         if (quantity !== undefined) {
@@ -244,8 +259,8 @@ async function startServer() {
           }
         }
 
-        db.prepare('UPDATE batches SET lot_number = COALESCE(?, lot_number), quantity = COALESCE(?, quantity), expiry_date = COALESCE(?, expiry_date), supplier = COALESCE(?, supplier), temperature_check = COALESCE(?, temperature_check) WHERE id = ?')
-          .run(lotNumber, quantity, expiryDate, supplier, temperatureCheck, batchId);
+        db.prepare('UPDATE batches SET lot_number = COALESCE(?, lot_number), quantity = COALESCE(?, quantity), expiry_date = COALESCE(?, expiry_date), supplier = COALESCE(?, supplier), temperature_check = COALESCE(?, temperature_check), barcode = COALESCE(?, barcode) WHERE id = ?')
+          .run(lotNumber, quantity, expiryDate, supplier, temperatureCheck, barcode, batchId);
       })();
       res.json({ message: 'Batch updated and stock adjusted' });
     } catch (err: any) {
@@ -255,20 +270,20 @@ async function startServer() {
   });
 
   app.post('/api/batches', authenticate, (req, res) => {
-    const { productId, lotNumber, quantity, expiryDate, supplier, temperatureCheck } = req.body;
+    const { productId, lotNumber, quantity, expiryDate, supplier, temperatureCheck, barcode } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     const receivedDate = new Date().toISOString().split('T')[0];
     const qty = Number(quantity) || 0;
 
     try {
       db.transaction(() => {
-        db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(id, productId, lotNumber, qty, expiryDate, receivedDate, supplier, temperatureCheck);
+        db.prepare('INSERT INTO batches (id, product_id, lot_number, quantity, expiry_date, received_date, supplier, temperature_check, barcode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, productId, lotNumber, qty, expiryDate, receivedDate, supplier, temperatureCheck, barcode || null);
         
         db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?')
           .run(qty, productId);
       })();
-      res.json({ id, productId, lotNumber, quantity: qty, expiryDate, receivedDate, supplier, temperatureCheck });
+      res.json({ id, productId, lotNumber, quantity: qty, expiryDate, receivedDate, supplier, temperatureCheck, barcode });
     } catch (err: any) {
       console.error('[DB] Batch creation error:', err);
       res.status(400).json({ error: 'Failed to create batch: ' + err.message });
@@ -336,14 +351,14 @@ async function startServer() {
   });
 
   app.post('/api/sales', authenticate, (req, res) => {
-    const { product_id, batch_id, quantity, customer_name, customer_address } = req.body;
+    const { product_id, batch_id, quantity, customer_name, customer_address, customer_phone, invoice_number } = req.body;
     const id = Math.random().toString(36).substr(2, 9);
     const date = new Date().toISOString();
     
     try {
       db.transaction(() => {
-        db.prepare('INSERT INTO sales (id, product_id, batch_id, quantity, customer_name, customer_address, date) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(id, product_id, batch_id, quantity, customer_name, customer_address, date);
+        db.prepare('INSERT INTO sales (id, product_id, batch_id, quantity, customer_name, customer_address, customer_phone, invoice_number, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, product_id, batch_id, quantity, customer_name, customer_address, customer_phone || null, invoice_number || null, date);
         
         // Update product quantity
         db.prepare('UPDATE products SET quantity = quantity - ? WHERE id = ?')
@@ -353,7 +368,7 @@ async function startServer() {
         db.prepare('UPDATE batches SET quantity = quantity - ? WHERE id = ?')
           .run(quantity, batch_id);
       })();
-      res.json({ id, product_id, batch_id, quantity, customer_name, customer_address, date });
+      res.json({ id, product_id, batch_id, quantity, customer_name, customer_address, customer_phone, invoice_number, date });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }

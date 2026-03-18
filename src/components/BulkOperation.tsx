@@ -1,506 +1,437 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Camera, Plus, Trash2, Package, Calendar, Truck, Thermometer, Hash, Save } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { api } from '../api';
 import { Product } from '../types';
-import { Trash2, Camera, Plus, Save, XCircle, ScanLine } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface BulkOperationProps {
+  products: Product[];
   onClose: () => void;
   onSuccess: () => void;
-  products: Product[];
+  onAddProduct?: (barcode?: string) => void;
 }
 
 interface ScannedItem {
-  product: Product;
-  quantity: number;
-}
-
-interface PendingScan {
+  id: string;
+  productId: string;
   barcode: string;
-  product?: Product;
+  name: string;
+  quantity: number;
+  lot_number: string;
+  expiry_date: string;
+  temperature: string;
+  supplier: string;
 }
 
-export const BulkOperation: React.FC<BulkOperationProps> = ({ onClose, onSuccess, products }) => {
-  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
+export const BulkOperation: React.FC<BulkOperationProps> = ({ 
+  products, 
+  onClose, 
+  onSuccess,
+  onAddProduct
+}) => {
+  const [items, setItems] = useState<ScannedItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<React.ReactNode | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [isManualOpen, setIsManualOpen] = useState(false);
-  const [pendingScan, setPendingScan] = useState<PendingScan | null>(null);
-  const [modalError, setModalError] = useState('');
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isModalSubmitting, setIsModalSubmitting] = useState(false);
-  const [mode, setMode] = useState<'carico' | 'scarico'>('carico');
+  const [manualBarcode, setManualBarcode] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [manualQuantity, setManualQuantity] = useState<number>(1);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleScan = async (barcode: string) => {
-    try {
-      setIsScannerOpen(false);
-      const product = await api.inventory.getProductByBarcode(barcode);
-      setPendingScan({ barcode, product });
-    } catch (err) {
-      // Product not found, prepare for new product creation
-      setPendingScan({ barcode });
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (selectedProductId) {
+      const product = products.find(p => p.id === selectedProductId);
+      if (product?.barcode) {
+        setManualBarcode(product.barcode);
+      }
     }
+  }, [selectedProductId, products]);
+
+  const addItem = (product: Product, barcode?: string, quantity: number = 1) => {
+    const newItem: ScannedItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      productId: product.id,
+      barcode: barcode || product.barcode || '',
+      name: product.name,
+      quantity: quantity,
+      lot_number: '',
+      expiry_date: '',
+      temperature: '',
+      supplier: ''
+    };
+    setItems(prev => [newItem, ...prev]);
+    setManualBarcode('');
+    setSelectedProductId('');
+    setManualQuantity(1);
   };
 
-  const handleConfirmPending = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pendingScan) return;
-
-    const formData = new FormData(e.currentTarget);
-    const name = formData.get('name') as string;
-    const quantity = Number(formData.get('quantity'));
-
-    if (!name || name.trim() === '') {
-      setModalError('Il nome del prodotto è obbligatorio');
-      return;
-    }
-
+    const barcode = manualBarcode.trim();
+    if (!barcode) return;
+    
     try {
-      setModalError('');
-      setIsModalSubmitting(true);
-      let product = pendingScan.product;
-      
-      // If it's a new product, save it first
-      if (!product) {
-        try {
-          product = await api.inventory.addProduct({
-            name: name.trim(),
-            barcode: pendingScan.barcode,
-            category: 'Fresco', // Default category
-            unit: 'pezzi',      // Default unit
-            min_stock: 5
-          });
-        } catch (err: any) {
-          // If server says it exists, try to fetch it one last time
-          if (err.message.includes('already exists')) {
-            product = await api.inventory.getProductByBarcode(pendingScan.barcode);
-          } else {
-            throw err;
-          }
-        }
+      const product = await api.inventory.getProductByBarcode(barcode);
+      if (product) {
+        addItem(product, barcode, manualQuantity);
       }
-
-      addItem(product!, quantity);
-      setPendingScan(null);
     } catch (err: any) {
-      setModalError(err.message || 'Errore durante il salvataggio');
-    } finally {
-      setIsModalSubmitting(false);
+      setError(
+        <div className="flex flex-col gap-2">
+          <p>Prodotto con barcode {barcode} non trovato.</p>
+          {onAddProduct && (
+            <button 
+              onClick={() => {
+                onAddProduct(barcode);
+                onClose();
+              }}
+              className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-emerald-700 transition-colors self-start"
+            >
+              Crea Nuovo Prodotto
+            </button>
+          )}
+        </div>
+      );
+      setTimeout(() => setError(null), 10000);
     }
   };
 
-  const addItem = (product: Product, quantity: number = 1) => {
-    setScannedItems(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        return prev.map(item => 
-          item.product.id === product.id 
-            ? { ...item, quantity: item.quantity + quantity } 
-            : item
-        );
-      }
-      return [...prev, { product, quantity }];
-    });
+  const handleManualAdd = () => {
+    if (!selectedProductId) return;
+    const product = products.find(p => p.id === selectedProductId);
+    if (product) {
+      addItem(product, manualBarcode.trim(), manualQuantity);
+    }
   };
 
-  const removeItem = (productId: string) => {
-    setScannedItems(prev => prev.filter(item => item.product.id !== productId));
-  };
-
-  const updateQuantity = (productId: string, qty: number) => {
-    setScannedItems(prev => prev.map(item => 
-      item.product.id === productId ? { ...item, quantity: Math.max(0, qty) } : item
+  const updateItem = (id: string, field: keyof ScannedItem, value: any) => {
+    setItems(prev => prev.map(item => 
+      item.id === id ? { ...item, [field]: value } : item
     ));
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (scannedItems.length === 0) return;
-    
-    setIsSubmitting(true);
-    const fd = new FormData(e.currentTarget);
-    
-    const bulkData = {
-      items: scannedItems.map(item => ({
-        productId: item.product.id,
-        quantity: mode === 'carico' ? item.quantity : -item.quantity
-      })),
-      lotNumber: mode === 'carico' ? fd.get('lotNumber') : 'SCARICO_BULK',
-      expiryDate: mode === 'carico' ? fd.get('expiryDate') : new Date().toISOString().split('T')[0],
-      supplier: mode === 'carico' ? fd.get('supplier') : 'INTERNO',
-      temperatureCheck: fd.get('temp') ? Number(fd.get('temp')) : null
-    };
+  const removeItem = (id: string) => {
+    setItems(prev => prev.filter(item => item.id !== id));
+  };
 
+  const handleConfirm = async () => {
+    if (items.length === 0) return;
+    
+    // Validation
+    const invalid = items.some(item => !item.quantity || !item.lot_number || !item.expiry_date || !item.barcode);
+    if (invalid) {
+      setError('Tutti i campi obbligatori (Quantità, Lotto, Scadenza, Barcode) devono essere compilati per ogni prodotto');
+      return;
+    }
+
+    setLoading(true);
     try {
-      await api.inventory.addBulkBatches(bulkData);
-      await api.inventory.addLog({
-        type: mode === 'carico' ? 'quality' : 'quality',
-        description: `${mode === 'carico' ? 'Carico' : 'Scarico'} Bulk di ${scannedItems.length} prodotti`,
-        operator: 'Sistema',
-        status: 'ok',
-        lotNumber: mode === 'carico' ? fd.get('lotNumber') : 'SCARICO_BULK'
-      });
+      // Use bulk endpoint
+      await api.inventory.addBulkBatches(items.map(item => ({
+        product_id: item.productId,
+        lot_number: item.lot_number,
+        barcode: item.barcode,
+        expiry_date: item.expiry_date,
+        quantity: item.quantity,
+        temperature: item.temperature,
+        supplier: item.supplier
+      })));
+      
       onSuccess();
       onClose();
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 20 }} 
-        animate={{ opacity: 1, scale: 1, y: 0 }} 
-        className="bg-white w-full max-w-2xl rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[90vh]"
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white rounded-3xl w-full max-w-5xl max-h-[95vh] flex flex-col shadow-2xl overflow-hidden"
       >
-        <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-emerald-600 text-white shrink-0 sticky top-0 z-10">
-          <h3 className="text-lg sm:text-xl font-bold">Operazione Multipla</h3>
-          <div className="flex bg-white/20 p-1 rounded-xl mx-2">
-            <button 
-              onClick={() => setMode('carico')}
-              className={`px-3 sm:px-4 py-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${mode === 'carico' ? 'bg-white text-emerald-600' : 'text-white hover:bg-white/10'}`}
-            >
-              CARICO
-            </button>
-            <button 
-              onClick={() => setMode('scarico')}
-              className={`px-3 sm:px-4 py-1 rounded-lg text-[10px] sm:text-xs font-bold transition-all ${mode === 'scarico' ? 'bg-white text-emerald-600' : 'text-white hover:bg-white/10'}`}
-            >
-              SCARICO
-            </button>
+        {/* Header */}
+        <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center bg-emerald-600 text-white shrink-0">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-black flex items-center gap-3">
+              <Package />
+              Carico Magazzino
+            </h2>
+            <p className="text-xs sm:text-sm opacity-80 font-medium">Inserimento manuale o tramite barcode</p>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white shrink-0">
-            <XCircle size={28} />
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+            <X size={24} />
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-6 overflow-y-auto">
+        <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-6">
           {error && (
-            <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-medium">
-              {error}
+            <div className="bg-red-50 text-red-600 p-4 rounded-2xl text-sm font-bold flex items-center gap-2 animate-shake">
+              <X size={18} /> {error}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-3">
-            <button 
-              onClick={() => setIsScannerOpen(true)}
-              className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl font-bold hover:bg-emerald-200 transition-all"
-            >
-              <Camera size={20} /> Scansiona
-            </button>
-            <button 
-              onClick={() => setIsManualOpen(true)}
-              className="flex items-center gap-2 bg-blue-100 text-blue-700 px-4 py-2 rounded-xl font-bold hover:bg-blue-200 transition-all"
-            >
-              <Plus size={20} /> Aggiungi Manuale
-            </button>
+          {/* Add Item Controls */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+            {/* Barcode Input */}
+            <form onSubmit={handleBarcodeSubmit} className="space-y-2">
+              <label className="block text-[10px] font-bold uppercase text-gray-400">Scansiona Barcode</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={manualBarcode}
+                    onChange={(e) => setManualBarcode(e.target.value)}
+                    placeholder="Codice a barre..."
+                    className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsScannerOpen(true)}
+                  className="p-3 bg-emerald-100 text-emerald-700 rounded-xl hover:bg-emerald-200 transition-colors"
+                >
+                  <Camera size={20} />
+                </button>
+                <div className="w-20">
+                  <input
+                    type="number"
+                    value={manualQuantity}
+                    onChange={(e) => setManualQuantity(Number(e.target.value))}
+                    className="w-full p-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold text-center"
+                    placeholder="Qtà"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-4 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors whitespace-nowrap"
+                >
+                  Aggiungi
+                </button>
+              </div>
+            </form>
+
+            {/* Manual Dropdown */}
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold uppercase text-gray-400">Selezione Manuale</label>
+              <div className="flex gap-2">
+                <select
+                  value={selectedProductId}
+                  onChange={(e) => setSelectedProductId(e.target.value)}
+                  className="flex-1 p-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                >
+                  <option value="">Seleziona prodotto...</option>
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <div className="w-20">
+                  <input
+                    type="number"
+                    value={manualQuantity}
+                    onChange={(e) => setManualQuantity(Number(e.target.value))}
+                    className="w-full p-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-bold text-center"
+                    placeholder="Qtà"
+                  />
+                </div>
+                <button
+                  onClick={handleManualAdd}
+                  disabled={!selectedProductId}
+                  className="px-4 py-3 bg-gray-800 text-white rounded-xl font-bold hover:bg-gray-900 transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  Aggiungi
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="border border-gray-100 rounded-2xl overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-xs font-bold uppercase text-gray-400">Prodotto</th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase text-gray-400">Barcode</th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase text-gray-400 w-24">Quantità</th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase text-gray-400 w-16"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                <AnimatePresence>
-                  {scannedItems.map(item => (
-                    <motion.tr 
-                      key={item.product.id}
-                      initial={{ opacity: 0, x: -10 }}
+          {/* Items List */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold uppercase text-gray-400 flex items-center gap-2">
+              Prodotti in Carico ({items.length})
+            </h3>
+            
+            <AnimatePresence>
+              {items.length === 0 ? (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center py-12 border-2 border-dashed border-gray-100 rounded-3xl"
+                >
+                  <Package className="mx-auto text-gray-200 mb-3" size={48} />
+                  <p className="text-gray-400 font-medium">Nessun prodotto aggiunto. Scansiona o seleziona un prodotto per iniziare.</p>
+                </motion.div>
+              ) : (
+                <div className="space-y-4">
+                  {items.map((item) => (
+                    <motion.div 
+                      key={item.id}
+                      initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 10 }}
+                      exit={{ opacity: 0, x: 20 }}
+                      className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow"
                     >
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-sm">{item.product.name}</p>
-                        <p className="text-xs text-gray-400">{item.product.unit}</p>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-400">
-                        {item.product.barcode}
-                      </td>
-                      <td className="px-4 py-3">
-                        <input 
-                          type="number" 
-                          value={item.quantity} 
-                          onChange={(e) => updateQuantity(item.product.id, Number(e.target.value))}
-                          className="w-full p-1 border border-gray-200 rounded text-center font-mono"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => removeItem(item.product.id)} className="text-red-400 hover:text-red-600">
+                      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                            <Package size={20} />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-gray-900">{item.name}</h4>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => removeItem(item.id)}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
                           <Trash2 size={18} />
                         </button>
-                      </td>
-                    </motion.tr>
-                  ))}
-                </AnimatePresence>
-                {scannedItems.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400 italic text-sm">
-                      Nessun prodotto aggiunto. Scansiona o seleziona dalla lista.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t border-gray-100">
-            {mode === 'carico' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+                        <div className="space-y-1">
+                          <label className={`text-[10px] font-bold uppercase ${!item.barcode ? 'text-red-500' : 'text-gray-400'}`}>
+                            Barcode {!item.barcode && '*'}
+                          </label>
+                          <input
+                            type="text"
+                            value={item.barcode}
+                            onChange={(e) => updateItem(item.id, 'barcode', e.target.value)}
+                            className={`w-full p-2 bg-gray-50 border ${!item.barcode ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200'} rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono`}
+                            placeholder="Codice a barre obbligatorio"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-gray-400">Quantità</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={item.quantity}
+                            onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value))}
+                            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1">
+                            <Hash size={10} /> Lotto
+                          </label>
+                          <input
+                            type="text"
+                            value={item.lot_number}
+                            onChange={(e) => updateItem(item.id, 'lot_number', e.target.value)}
+                            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                            placeholder="es. L2024-01"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1">
+                            <Calendar size={10} /> Scadenza
+                          </label>
+                          <input
+                            type="date"
+                            value={item.expiry_date}
+                            onChange={(e) => updateItem(item.id, 'expiry_date', e.target.value)}
+                            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1">
+                            <Thermometer size={10} /> Temp. (°C)
+                          </label>
+                          <input
+                            type="text"
+                            value={item.temperature}
+                            onChange={(e) => updateItem(item.id, 'temperature', e.target.value)}
+                            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                            placeholder="es. +4"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1">
+                            <Truck size={10} /> Fornitore
+                          </label>
+                          <input
+                            type="text"
+                            value={item.supplier}
+                            onChange={(e) => updateItem(item.id, 'supplier', e.target.value)}
+                            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                            placeholder="es. Rossi Srl"
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 sm:p-6 border-t border-gray-100 bg-gray-50 flex flex-col sm:flex-row gap-3 shrink-0">
+          <button
+            onClick={onClose}
+            className="flex-1 px-6 py-3 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-white transition-colors"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={loading || items.length === 0}
+            className="flex-[2] px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Lotto</label>
-                    <input name="lotNumber" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" placeholder="es. L2024-001" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Scadenza</label>
-                    <input name="expiryDate" type="date" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Fornitore</label>
-                    <input name="supplier" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" placeholder="Nome fornitore" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Temp. Arrivo (°C)</label>
-                    <input name="temp" type="number" step="0.1" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl" placeholder="opzionale" />
-                  </div>
-                </div>
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Elaborazione...
               </>
+            ) : (
+              <><Save size={20} /> Conferma Carico ({items.length})</>
             )}
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <button 
-                type="button" 
-                onClick={onClose}
-                className="order-2 sm:order-1 flex-1 px-6 py-3 border border-gray-200 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-all"
-              >
-                Annulla
-              </button>
-              <button 
-                type="submit" 
-                disabled={scannedItems.length === 0 || isSubmitting}
-                className="order-1 sm:order-2 flex-[2] flex items-center justify-center gap-2 bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-600/20"
-              >
-                <Save size={20} /> {isSubmitting ? 'Salvataggio...' : 'Registra Tutto'}
-              </button>
-            </div>
-          </form>
+          </button>
         </div>
       </motion.div>
 
       {isScannerOpen && (
         <BarcodeScanner 
-          onScan={handleScan} 
+          onScan={async (code) => {
+            setIsScannerOpen(false);
+            try {
+              const product = await api.inventory.getProductByBarcode(code);
+              if (product) addItem(product, code);
+              else throw new Error('Not found');
+            } catch (err) {
+              setError(
+                <div className="flex flex-col gap-2">
+                  <p>Prodotto con barcode {code} non trovato.</p>
+                  {onAddProduct && (
+                    <button 
+                      onClick={() => {
+                        onAddProduct(code);
+                        onClose();
+                      }}
+                      className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-emerald-700 transition-colors self-start"
+                    >
+                      Crea Nuovo Prodotto
+                    </button>
+                  )}
+                </div>
+              );
+              setTimeout(() => setError(null), 10000);
+            }
+          }} 
           onClose={() => setIsScannerOpen(false)} 
         />
-      )}
-
-      {pendingScan && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden"
-          >
-            <div className="p-6 bg-emerald-600 text-white">
-              <div className="flex items-center gap-2 mb-1">
-                <ScanLine size={20} />
-                <h4 className="font-bold">Codice Rilevato</h4>
-              </div>
-              <p className="text-xs font-mono opacity-80">{pendingScan.barcode}</p>
-            </div>
-            
-            <form onSubmit={handleConfirmPending} className="p-6 space-y-4">
-              {modalError && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium">
-                  {modalError}
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Nome Prodotto</label>
-                <input 
-                  name="name" 
-                  required 
-                  defaultValue={pendingScan.product?.name || ''} 
-                  placeholder="Inserisci nome prodotto..."
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità</label>
-                <input 
-                  name="quantity" 
-                  type="number" 
-                  required 
-                  defaultValue="1"
-                  min="1"
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono text-lg"
-                />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button 
-                  type="button" 
-                  onClick={() => setPendingScan(null)}
-                  className="flex-1 py-3 text-gray-400 font-bold hover:bg-gray-50 rounded-xl transition-colors"
-                >
-                  Annulla
-                </button>
-                <button 
-                  type="submit" 
-                  disabled={isModalSubmitting}
-                  className="flex-1 bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20 disabled:opacity-50"
-                >
-                  {isModalSubmitting ? '...' : 'Conferma'}
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
-      {isManualOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden"
-          >
-            <div className="p-6 bg-blue-600 text-white">
-              <div className="flex items-center gap-2 mb-1">
-                <Plus size={20} />
-                <h4 className="font-bold">Inserimento Manuale</h4>
-              </div>
-              <p className="text-xs opacity-80">Inserisci i dati del prodotto</p>
-            </div>
-            
-            <form 
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                const barcode = (fd.get('barcode') as string).trim();
-                const name = (fd.get('name') as string).trim();
-                const quantity = Number(fd.get('quantity'));
-
-                if (!barcode || !name) {
-                  setModalError('Barcode e Nome sono obbligatori');
-                  return;
-                }
-
-                try {
-                  setModalError('');
-                  setIsModalSubmitting(true);
-                  // Check if product exists by barcode
-                  let product;
-                  try {
-                    product = await api.inventory.getProductByBarcode(barcode);
-                  } catch (err) {
-                    // Not found, create it
-                    try {
-                      product = await api.inventory.addProduct({
-                        name,
-                        barcode,
-                        category: 'Fresco',
-                        unit: 'pezzi',
-                        min_stock: 5
-                      });
-                    } catch (addErr: any) {
-                      if (addErr.message.includes('already exists')) {
-                        product = await api.inventory.getProductByBarcode(barcode);
-                      } else {
-                        throw addErr;
-                      }
-                    }
-                  }
-
-                  addItem(product, quantity);
-                  setIsManualOpen(false);
-                  setModalError('');
-                } catch (err: any) {
-                  setModalError(err.message);
-                } finally {
-                  setIsModalSubmitting(false);
-                }
-              }} 
-              className="p-6 space-y-4"
-            >
-              {modalError && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium">
-                  {modalError}
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Barcode</label>
-                <input 
-                  name="barcode" 
-                  required 
-                  placeholder="Scrivi o incolla barcode..."
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
-                  onBlur={async (e) => {
-                    const bc = e.target.value;
-                    if (bc) {
-                      try {
-                        const p = await api.inventory.getProductByBarcode(bc);
-                        const nameInput = (e.target.form as HTMLFormElement).elements.namedItem('name') as HTMLInputElement;
-                        if (nameInput && !nameInput.value) nameInput.value = p.name;
-                      } catch (err) {
-                        // Ignore not found
-                      }
-                    }
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Nome Prodotto</label>
-                <input 
-                  name="name" 
-                  required 
-                  placeholder="Inserisci nome prodotto..."
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantità</label>
-                <input 
-                  name="quantity" 
-                  type="number" 
-                  required 
-                  defaultValue="1"
-                  min="1"
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-mono text-lg"
-                />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setIsManualOpen(false);
-                    setModalError('');
-                  }}
-                  className="flex-1 py-3 text-gray-400 font-bold hover:bg-gray-50 rounded-xl transition-colors"
-                >
-                  Annulla
-                </button>
-                <button 
-                  type="submit" 
-                  disabled={isModalSubmitting}
-                  className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 disabled:opacity-50"
-                >
-                  {isModalSubmitting ? '...' : 'Aggiungi'}
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
       )}
     </div>
   );

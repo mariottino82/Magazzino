@@ -1,17 +1,19 @@
 export interface Product {
   id: string;
   name: string;
+  barcode: string;
   category: string;
   unit: string;
   min_stock: number;
   quantity: number; // Added for stock tracking
-  barcode?: string;
 }
 
 export interface Batch {
   id: string;
   product_id: string;
   lot_number: string;
+  barcode?: string;
+  quantity: number;
   expiry_date: string;
   received_date: string;
   supplier: string;
@@ -25,6 +27,8 @@ export interface Sale {
   quantity: number;
   customer_name: string;
   customer_address: string;
+  customer_phone: string;
+  invoice_number: string;
   date: string;
 }
 

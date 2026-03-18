@@ -75,11 +75,11 @@ const migrations = [
     id: 2,
     description: 'Add barcode to products',
     run: () => {
-      // Use try-catch because ALTER TABLE doesn't support IF NOT EXISTS for columns
       try {
-        db.exec('ALTER TABLE products ADD COLUMN barcode TEXT UNIQUE');
+        db.exec('ALTER TABLE products ADD COLUMN barcode TEXT');
+        db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)');
       } catch (err) {
-        console.log('[DB] Column barcode might already exist, skipping...');
+        console.log('[DB] Column barcode might already exist or error occurred:', err);
       }
     }
   },
@@ -148,6 +148,33 @@ const migrations = [
         )
       `);
     }
+  },
+  {
+    id: 6,
+    description: 'Add customer_phone and invoice_number to sales',
+    run: () => {
+      try {
+        db.exec('ALTER TABLE sales ADD COLUMN customer_phone TEXT');
+      } catch (err) {
+        console.log('[DB] Column customer_phone might already exist, skipping...');
+      }
+      try {
+        db.exec('ALTER TABLE sales ADD COLUMN invoice_number TEXT');
+      } catch (err) {
+        console.log('[DB] Column invoice_number might already exist, skipping...');
+      }
+    }
+  },
+  {
+    id: 7,
+    description: 'Add barcode to batches',
+    run: () => {
+      try {
+        db.exec('ALTER TABLE batches ADD COLUMN barcode TEXT');
+      } catch (err) {
+        console.log('[DB] Column barcode might already exist in batches, skipping...');
+      }
+    }
   }
 ];
 
@@ -178,6 +205,31 @@ const applyMigrations = () => {
 };
 
 applyMigrations();
+
+// Robust check for barcode column (fallback if migration was marked applied but failed)
+const tableInfo = db.prepare("PRAGMA table_info(products)").all() as any[];
+const hasBarcode = tableInfo.some(col => col.name === 'barcode');
+if (!hasBarcode && tableInfo.length > 0) {
+  console.log('[DB] Manually adding missing barcode column to products');
+  try {
+    db.exec('ALTER TABLE products ADD COLUMN barcode TEXT');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)');
+  } catch (err) {
+    console.error('[DB] Failed to add barcode column:', err);
+  }
+}
+
+// Robust check for lot_number column in haccp_logs
+const haccpTableInfo = db.prepare("PRAGMA table_info(haccp_logs)").all() as any[];
+const hasLotNumber = haccpTableInfo.some(col => col.name === 'lot_number');
+if (!hasLotNumber && haccpTableInfo.length > 0) {
+  console.log('[DB] Manually adding missing lot_number column to haccp_logs');
+  try {
+    db.exec('ALTER TABLE haccp_logs ADD COLUMN lot_number TEXT');
+  } catch (err) {
+    console.error('[DB] Failed to add lot_number column:', err);
+  }
+}
 
 // Create initial admin if not exists
 const adminEmail = 'admin@gastrostock.it';
